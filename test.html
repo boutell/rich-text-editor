@@ -37,7 +37,6 @@
 function wrapRangeInStrong(range) {
   const textNodes = new Set();
 
-  // Step 1: Collect affected text nodes
   if (
     range.startContainer === range.endContainer &&
     range.startContainer.nodeType === Node.TEXT_NODE
@@ -60,17 +59,14 @@ function wrapRangeInStrong(range) {
     }
   }
 
-  let lastInsertedStrong = null;
-
   for (const textNode of textNodes) {
-    if (isInsideTag(textNode, 'STRONG')) continue; // 💥 skip nested
+    if (isInsideTag(textNode, 'STRONG')) continue;
 
     let startOffset = 0;
     let endOffset = textNode.length;
 
     if (textNode === range.startContainer) startOffset = range.startOffset;
     if (textNode === range.endContainer) endOffset = range.endOffset;
-
     if (startOffset >= endOffset) continue;
 
     const parent = textNode.parentNode;
@@ -87,22 +83,21 @@ function wrapRangeInStrong(range) {
     }
 
     const text = middle.textContent;
-
-    // Check if previous sibling is a <strong>
     const prev = middle.previousSibling;
-    const canMerge =
-      lastInsertedStrong &&
-      prev === lastInsertedStrong &&
-      prev.tagName === 'STRONG';
 
-    if (canMerge) {
-      lastInsertedStrong.appendChild(document.createTextNode(text));
+    if (
+      prev &&
+      prev.nodeType === Node.ELEMENT_NODE &&
+      prev.tagName === 'STRONG'
+    ) {
+      // ✅ Merge into previous <strong>
+      prev.appendChild(document.createTextNode(text));
       middle.remove();
     } else {
+      // ➕ Insert new <strong>
       const strong = document.createElement('strong');
       strong.textContent = text;
       parent.replaceChild(strong, middle);
-      lastInsertedStrong = strong;
     }
   }
 
