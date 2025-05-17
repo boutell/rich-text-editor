@@ -84,6 +84,7 @@ function wrapRangeInStrong(range) {
 
     const text = middle.textContent;
     const prev = middle.previousSibling;
+    const next = middle.nextSibling;
 
     if (
       prev &&
@@ -93,11 +94,38 @@ function wrapRangeInStrong(range) {
       // ✅ Merge into previous <strong>
       prev.appendChild(document.createTextNode(text));
       middle.remove();
+
+      // ✅ Also merge next <strong> if it's there
+      if (
+        prev.nextSibling &&
+        prev.nextSibling.nodeType === Node.ELEMENT_NODE &&
+        prev.nextSibling.tagName === 'STRONG'
+      ) {
+        const nextStrong = prev.nextSibling;
+        while (nextStrong.firstChild) {
+          prev.appendChild(nextStrong.firstChild);
+        }
+        nextStrong.remove();
+      }
+
     } else {
-      // ➕ Insert new <strong>
+      // ➕ Wrap in new <strong>
       const strong = document.createElement('strong');
       strong.textContent = text;
       parent.replaceChild(strong, middle);
+
+      // ✅ Merge forward into new <strong> if applicable
+      if (
+        strong.nextSibling &&
+        strong.nextSibling.nodeType === Node.ELEMENT_NODE &&
+        strong.nextSibling.tagName === 'STRONG'
+      ) {
+        const nextStrong = strong.nextSibling;
+        while (nextStrong.firstChild) {
+          strong.appendChild(nextStrong.firstChild);
+        }
+        nextStrong.remove();
+      }
     }
   }
 
