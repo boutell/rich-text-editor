@@ -23,17 +23,60 @@
     <p>Test Page Footer</p>
   </footer>
   <script>
-    console.log("This is a test script.");  
-    // Additional JavaScript can be added here
+console.log("This is a test script.");  
+// Additional JavaScript can be added here
 
-    function bold() {
-      const selection = window.getSelection();
-      if (selection.rangeCount > 0) {
-        const range = selection.getRangeAt(0);
-        const strongElements = wrapRangeInStrong(range);
+function bold() {
+  const selection = window.getSelection();
+  if (selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    toggleStrong(range);
+    // const strongElements = wrapRangeInStrong(range);
+  }
+}
+  
+function toggleStrong(range) {
+  if (!range || range.collapsed) return;
+
+  // Step 1: Determine if the entire selection is already bold
+  const textNodes = collectTextNodes(range);
+  const allBold = [...textNodes].every(node => isInsideTag(node, 'STRONG'));
+  console.log(allBold);
+  if (allBold) {
+    unwrapStrongInRange(range, textNodes);
+  } else {
+    wrapRangeInStrong(range);
+  }
+}
+
+function collectTextNodes(range) {
+  const nodes = new Set();
+
+  if (
+    range.startContainer === range.endContainer &&
+    range.startContainer.nodeType === Node.TEXT_NODE
+  ) {
+    nodes.add(range.startContainer);
+  } else {
+    const walker = document.createTreeWalker(
+      range.commonAncestorContainer,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
       }
+    );
+    let node = walker.nextNode();
+    while (node) {
+      nodes.add(node);
+      node = walker.nextNode();
     }
-      
+  }
+
+  return nodes;
+}
+
 function wrapRangeInStrong(range) {
   const textNodes = new Set();
 
@@ -139,28 +182,112 @@ function wrapRangeInStrong(range) {
 
   // Step 5: Normalize to merge any fragmented text nodes
   normalizeRangeContainer(range);
+}
 
-  // Helper: Check if a node is inside a given tag (e.g. <strong>)
-  function isInsideTag(node, tagName) {
-    let current = node.parentNode;
-    tagName = tagName.toUpperCase();
-    while (current) {
-      if (current.tagName === tagName) return true;
-      current = current.parentNode;
+// Helper: Check if a node is inside a given tag (e.g. <strong>)
+function isInsideTag(node, tagName) {
+  let current = node.parentNode;
+  tagName = tagName.toUpperCase();
+  while (current) {
+    if (current.tagName === tagName) return true;
+    current = current.parentNode;
+  }
+  return false;
+}
+
+// Helper: Normalize the outermost container that contains the range
+function normalizeRangeContainer(range) {
+  let el = range.commonAncestorContainer;
+  while (el && el.nodeType !== 1) {
+    el = el.parentNode;
+  }
+  if (el) {
+    el.normalize(); // Merges adjacent text nodes
+  }
+}
+
+function unwrapStrongInRange(range) {
+  const textNodes = collectTextNodes(range);
+
+  for (const textNode of textNodes) {
+    let startOffset = 0;
+    let endOffset = textNode.length;
+
+    if (textNode === range.startContainer) startOffset = range.startOffset;
+    if (textNode === range.endContainer) endOffset = range.endOffset;
+    if (startOffset >= endOffset) continue;
+
+    const parent = textNode.parentNode;
+    let middle = textNode;
+
+    // Step 1: Split text node to isolate selection
+    if (endOffset < middle.length) {
+      middle.splitText(endOffset);
     }
-    return false;
+    if (startOffset > 0) {
+      middle = middle.splitText(startOffset);
+    }
+
+    const strong = findClosestTag(middle, 'STRONG');
+    if (!strong) continue;
+
+    const strongParent = strong.parentNode;
+
+    // Step 2: If <strong> only contains this node, unwrap it completely
+    if (
+      strong.childNodes.length === 1 &&
+      strong.firstChild === middle
+    ) {
+      strongParent.replaceChild(middle, strong);
+      continue;
+    }
+
+    // Step 3: Preserve siblings before and after selection
+    const beforeStrong = document.createElement('strong');
+    const afterStrong = document.createElement('strong');
+
+    let state = 'before';
+
+    for (const child of [...strong.childNodes]) {
+      if (child === middle) {
+        state = 'after';
+        continue;
+      }
+      if (state === 'before') {
+        beforeStrong.appendChild(child);
+      } else {
+        afterStrong.appendChild(child);
+      }
+    }
+
+    const plainText = document.createTextNode(middle.textContent);
+
+    // Insert in the order: before <strong>, plain, after <strong>
+    if (beforeStrong.hasChildNodes()) {
+      strongParent.insertBefore(beforeStrong, strong);
+    }
+
+    strongParent.insertBefore(plainText, strong);
+
+    if (afterStrong.hasChildNodes()) {
+      strongParent.insertBefore(afterStrong, strong);
+    }
+
+    // Remove the original <strong>
+    strong.remove();
   }
 
-  // Helper: Normalize the outermost container that contains the range
-  function normalizeRangeContainer(range) {
-    let el = range.commonAncestorContainer;
-    while (el && el.nodeType !== 1) {
-      el = el.parentNode;
-    }
-    if (el) {
-      el.normalize(); // Merges adjacent text nodes
-    }
+  normalizeRangeContainer(range);
+}
+
+function findClosestTag(node, tagName) {
+  let current = node.parentNode;
+  tagName = tagName.toUpperCase();
+  while (current) {
+    if (current.tagName === tagName) return current;
+    current = current.parentNode;
   }
+  return null;
 }
 </script>
   <style>
