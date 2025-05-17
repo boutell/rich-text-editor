@@ -72,12 +72,10 @@ function wrapRangeInStrong(range) {
     const parent = textNode.parentNode;
     let middle = textNode;
 
-    // Split after end first
     if (endOffset < middle.length) {
       middle.splitText(endOffset);
     }
 
-    // Then split before start
     if (startOffset > 0) {
       middle = middle.splitText(startOffset);
     }
@@ -91,11 +89,9 @@ function wrapRangeInStrong(range) {
       prev.nodeType === Node.ELEMENT_NODE &&
       prev.tagName === 'STRONG'
     ) {
-      // ✅ Merge into previous <strong>
       prev.appendChild(document.createTextNode(text));
       middle.remove();
 
-      // ✅ Also merge next <strong> if it's there
       if (
         prev.nextSibling &&
         prev.nextSibling.nodeType === Node.ELEMENT_NODE &&
@@ -109,12 +105,10 @@ function wrapRangeInStrong(range) {
       }
 
     } else {
-      // ➕ Wrap in new <strong>
       const strong = document.createElement('strong');
       strong.textContent = text;
       parent.replaceChild(strong, middle);
 
-      // ✅ Merge forward into new <strong> if applicable
       if (
         strong.nextSibling &&
         strong.nextSibling.nodeType === Node.ELEMENT_NODE &&
@@ -129,6 +123,9 @@ function wrapRangeInStrong(range) {
     }
   }
 
+  // 🔧 Normalize affected block to merge adjacent text nodes
+  normalizeRangeContainer(range);
+
   function isInsideTag(node, tagName) {
     let current = node.parentNode;
     tagName = tagName.toUpperCase();
@@ -137,6 +134,16 @@ function wrapRangeInStrong(range) {
       current = current.parentNode;
     }
     return false;
+  }
+
+  function normalizeRangeContainer(range) {
+    let el = range.commonAncestorContainer;
+    while (el && el.nodeType !== 1) {
+      el = el.parentNode;
+    }
+    if (el) {
+      el.normalize();
+    }
   }
 }
 </script>
