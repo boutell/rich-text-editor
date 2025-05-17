@@ -37,12 +37,15 @@
 function wrapRangeInStrong(range) {
   const textNodes = new Set();
 
+  // Step 1: Collect all text nodes intersecting the range
   if (
     range.startContainer === range.endContainer &&
     range.startContainer.nodeType === Node.TEXT_NODE
   ) {
+    // Simple case: selection is entirely within one text node
     textNodes.add(range.startContainer);
   } else {
+    // General case: walk and collect all intersecting text nodes
     const walker = document.createTreeWalker(
       range.commonAncestorContainer,
       NodeFilter.SHOW_TEXT,
@@ -59,39 +62,48 @@ function wrapRangeInStrong(range) {
     }
   }
 
+  // Step 2: Process each relevant text node
   for (const textNode of textNodes) {
+    // Skip any text node already inside a <strong> to prevent nesting
     if (isInsideTag(textNode, 'STRONG')) continue;
 
+    // Compute selection bounds within this text node
     let startOffset = 0;
     let endOffset = textNode.length;
-
     if (textNode === range.startContainer) startOffset = range.startOffset;
     if (textNode === range.endContainer) endOffset = range.endOffset;
-    if (startOffset >= endOffset) continue;
+    if (startOffset >= endOffset) continue; // no text selected in this node
 
     const parent = textNode.parentNode;
     let middle = textNode;
 
+    // Step 2a: Split off text *after* the selection
     if (endOffset < middle.length) {
       middle.splitText(endOffset);
     }
 
+    // Step 2b: Split off text *before* the selection
     if (startOffset > 0) {
       middle = middle.splitText(startOffset);
     }
 
+    // At this point, `middle` contains only the selected text
     const text = middle.textContent;
+
     const prev = middle.previousSibling;
     const next = middle.nextSibling;
 
+    // Step 3: Coalesce with previous <strong> if it exists
     if (
       prev &&
       prev.nodeType === Node.ELEMENT_NODE &&
       prev.tagName === 'STRONG'
     ) {
+      // Append the selected text to the previous <strong>
       prev.appendChild(document.createTextNode(text));
       middle.remove();
 
+      // Also merge the next <strong> into the previous one, if present
       if (
         prev.nextSibling &&
         prev.nextSibling.nodeType === Node.ELEMENT_NODE &&
@@ -105,10 +117,12 @@ function wrapRangeInStrong(range) {
       }
 
     } else {
+      // Step 4: Wrap in a new <strong> if no previous exists
       const strong = document.createElement('strong');
       strong.textContent = text;
       parent.replaceChild(strong, middle);
 
+      // Merge next <strong> into this one if adjacent
       if (
         strong.nextSibling &&
         strong.nextSibling.nodeType === Node.ELEMENT_NODE &&
@@ -123,9 +137,10 @@ function wrapRangeInStrong(range) {
     }
   }
 
-  // 🔧 Normalize affected block to merge adjacent text nodes
+  // Step 5: Normalize to merge any fragmented text nodes
   normalizeRangeContainer(range);
 
+  // Helper: Check if a node is inside a given tag (e.g. <strong>)
   function isInsideTag(node, tagName) {
     let current = node.parentNode;
     tagName = tagName.toUpperCase();
@@ -136,13 +151,14 @@ function wrapRangeInStrong(range) {
     return false;
   }
 
+  // Helper: Normalize the outermost container that contains the range
   function normalizeRangeContainer(range) {
     let el = range.commonAncestorContainer;
     while (el && el.nodeType !== 1) {
       el = el.parentNode;
     }
     if (el) {
-      el.normalize();
+      el.normalize(); // Merges adjacent text nodes
     }
   }
 }
