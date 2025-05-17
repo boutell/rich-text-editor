@@ -37,7 +37,7 @@
 function wrapRangeInStrong(range) {
   const textNodes = new Set();
 
-  // Step 1: Handle simple text-only selections
+  // Step 1: Collect affected text nodes
   if (
     range.startContainer === range.endContainer &&
     range.startContainer.nodeType === Node.TEXT_NODE
@@ -60,8 +60,11 @@ function wrapRangeInStrong(range) {
     }
   }
 
-  // Step 2: For each text node, split precisely and wrap only the selected portion
+  let lastInsertedStrong = null;
+
   for (const textNode of textNodes) {
+    if (isInsideTag(textNode, 'STRONG')) continue; // 💥 skip nested
+
     let startOffset = 0;
     let endOffset = textNode.length;
 
@@ -73,20 +76,44 @@ function wrapRangeInStrong(range) {
     const parent = textNode.parentNode;
     let middle = textNode;
 
-    // Split after end first to preserve correct reference
+    // Split after end first
     if (endOffset < middle.length) {
       middle.splitText(endOffset);
     }
 
-    // Then split before start (this mutates the original node)
+    // Then split before start
     if (startOffset > 0) {
       middle = middle.splitText(startOffset);
     }
 
-    // Now middle contains exactly the selected text
-    const strong = document.createElement('strong');
-    strong.textContent = middle.textContent;
-    parent.replaceChild(strong, middle);
+    const text = middle.textContent;
+
+    // Check if previous sibling is a <strong>
+    const prev = middle.previousSibling;
+    const canMerge =
+      lastInsertedStrong &&
+      prev === lastInsertedStrong &&
+      prev.tagName === 'STRONG';
+
+    if (canMerge) {
+      lastInsertedStrong.appendChild(document.createTextNode(text));
+      middle.remove();
+    } else {
+      const strong = document.createElement('strong');
+      strong.textContent = text;
+      parent.replaceChild(strong, middle);
+      lastInsertedStrong = strong;
+    }
+  }
+
+  function isInsideTag(node, tagName) {
+    let current = node.parentNode;
+    tagName = tagName.toUpperCase();
+    while (current) {
+      if (current.tagName === tagName) return true;
+      current = current.parentNode;
+    }
+    return false;
   }
 }
 </script>
