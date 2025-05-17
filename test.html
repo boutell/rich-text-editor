@@ -16,7 +16,8 @@
       <p>Here we already have <strong>some bold</strong>.</p>
     </section>
     <nav>
-      <button onclick="bold()">Bold</button>
+      <button onclick="toggle('em')">Italic</button>
+      <button onclick="toggle('strong')">Bold</button>
     </nav>
   </main>
   <footer>
@@ -26,12 +27,11 @@
 console.log("This is a test script.");  
 // Additional JavaScript can be added here
 
-function bold() {
+function toggle(tagname) {
   const selection = window.getSelection();
   if (selection.rangeCount > 0) {
     const range = selection.getRangeAt(0);
-    toggleInlineTag(range, 'strong');
-    // const strongElements = wrapRangeInStrong(range);
+    toggleInlineTag(range, tagname);
   }
 }
 
@@ -102,7 +102,15 @@ function wrapRangeInTag(range, tagName) {
 }
 
 function unwrapTagInRange(range, textNodes, tagName) {
+  tagName = tagName.toUpperCase();
+
+  const seen = new Set();
+
   for (const textNode of textNodes) {
+    // Avoid processing the same node twice
+    if (seen.has(textNode)) continue;
+    seen.add(textNode);
+
     let startOffset = 0;
     let endOffset = textNode.length;
 
@@ -110,49 +118,117 @@ function unwrapTagInRange(range, textNodes, tagName) {
     if (textNode === range.endContainer) endOffset = range.endOffset;
     if (startOffset >= endOffset) continue;
 
-    let middle = textNode;
+    let selected = textNode;
 
-    if (endOffset < middle.length) {
-      middle.splitText(endOffset);
+    if (endOffset < selected.length) {
+      selected.splitText(endOffset);
     }
     if (startOffset > 0) {
-      middle = middle.splitText(startOffset);
+      selected = selected.splitText(startOffset);
     }
 
-    const target = findClosestTag(middle, tagName);
-    if (!target) continue;
+    const outerTag = findClosestTag(selected, tagName);
+    if (!outerTag) continue;
 
-    const parent = target.parentNode;
+    const outerParent = outerTag.parentNode;
+    const selectedChild = getChildOfAncestor(selected, outerTag);
 
-    // If target only contains this node, unwrap completely
-    if (target.childNodes.length === 1 && target.firstChild === middle) {
-      parent.replaceChild(middle, target);
-      continue;
-    }
-
-    // Otherwise split tag
-    const before = document.createElement(tagName);
-    const after = document.createElement(tagName);
+    // Step 1: create left and right <tagName> clones
+    const beforeTag = outerTag.cloneNode(false);
+    const afterTag = outerTag.cloneNode(false);
 
     let state = 'before';
-
-    for (const child of [...target.childNodes]) {
-      if (child === middle) {
+    for (const child of [...outerTag.childNodes]) {
+      if (child === selectedChild) {
         state = 'after';
         continue;
       }
-      (state === 'before' ? before : after).appendChild(child);
+      const clone = child.cloneNode(true);
+      (state === 'before' ? beforeTag : afterTag).appendChild(clone);
     }
 
-    const plain = document.createTextNode(middle.textContent);
+    // Step 2: split selectedChild if it is a wrapper (e.g. <em>)
+    const selectedParts = splitWrapperForSelectedNode(selectedChild, selected);
 
-    if (before.hasChildNodes()) parent.insertBefore(before, target);
-    parent.insertBefore(plain, target);
-    if (after.hasChildNodes()) parent.insertBefore(after, target);
-    target.remove();
+    // Step 3: insert in order: beforeTag, unwrapped, afterTag
+    if (beforeTag.hasChildNodes()) outerParent.insertBefore(beforeTag, outerTag);
+    for (const el of selectedParts.unwrapped) {
+      outerParent.insertBefore(el, outerTag);
+    }
+    if (afterTag.hasChildNodes()) outerParent.insertBefore(afterTag, outerTag);
+
+    outerTag.remove();
   }
 
   normalizeRangeContainer(range);
+}
+
+function splitWrapperForSelectedNode(wrapper, selected) {
+  if (wrapper === selected) {
+    return {
+      unwrapped: [document.createTextNode(selected.textContent)]
+    };
+  }
+
+  const tagName = wrapper.tagName;
+  const before = wrapper.cloneNode(false);
+  const middle = wrapper.cloneNode(false);
+  const after = wrapper.cloneNode(false);
+
+  let state = 'before';
+  for (const child of [...wrapper.childNodes]) {
+    if (child === selected) {
+      middle.appendChild(document.createTextNode(child.textContent));
+      state = 'after';
+      continue;
+    }
+    const clone = child.cloneNode(true);
+    if (state === 'before') before.appendChild(clone);
+    else after.appendChild(clone);
+  }
+
+  const output = [];
+
+  if (before.hasChildNodes()) {
+    const outer = wrapper.parentNode.cloneNode(false);
+    outer.appendChild(before);
+    output.push(outer);
+  }
+
+  output.push(middle);
+
+  if (after.hasChildNodes()) {
+    const outer = wrapper.parentNode.cloneNode(false);
+    outer.appendChild(after);
+    output.push(outer);
+  }
+
+  return {
+    unwrapped: output
+  };
+}
+
+function rewrapExcludingTag(node, tagToExclude) {
+  const wrappers = [];
+
+  let current = node.parentNode;
+  tagToExclude = tagToExclude.toUpperCase();
+
+  while (current && current.nodeType === 1) {
+    if (current.tagName === tagToExclude) break;
+
+    const clone = current.cloneNode(false); // shallow clone
+    wrappers.push(clone);
+    current = current.parentNode;
+  }
+
+  let inner = node;
+  for (let i = wrappers.length - 1; i >= 0; i--) {
+    wrappers[i].appendChild(inner);
+    inner = wrappers[i];
+  }
+
+  return inner;
 }
 
 function collectTextNodes(range) {
@@ -169,8 +245,10 @@ function collectTextNodes(range) {
       NodeFilter.SHOW_TEXT,
       {
         acceptNode(node) {
-          return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
-        }
+          return range.intersectsNode(node)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
+        },
       }
     );
     let node = walker.nextNode();
@@ -209,6 +287,14 @@ function normalizeRangeContainer(range) {
     el = el.parentNode;
   }
   if (el) el.normalize();
+}
+
+function getChildOfAncestor(node, ancestor) {
+  let current = node;
+  while (current && current.parentNode !== ancestor) {
+    current = current.parentNode;
+  }
+  return current;
 }
 </script>
   <style>
