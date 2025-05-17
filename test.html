@@ -151,12 +151,31 @@ function unwrapTagInRange(range, textNodes, tagName) {
     const selectedParts = splitWrapperForSelectedNode(selectedChild, selected);
 
     // Step 3: insert in order: beforeTag, unwrapped, afterTag
-    if (beforeTag.hasChildNodes()) outerParent.insertBefore(beforeTag, outerTag);
-    for (const el of selectedParts.unwrapped) {
+    const fragments = [];
+
+    if (beforeTag.hasChildNodes()) fragments.push(beforeTag);
+    fragments.push(...selectedParts.unwrapped);
+    if (afterTag.hasChildNodes()) fragments.push(afterTag);
+
+    // Merge adjacent same-tag fragments
+    const merged = [];
+    for (const frag of fragments) {
+      const last = merged[merged.length - 1];
+      if (
+        last &&
+        frag.tagName &&
+        last.tagName === frag.tagName &&
+        last.tagName === tagName
+      ) {
+        while (frag.firstChild) last.appendChild(frag.firstChild);
+      } else {
+        merged.push(frag);
+      }
+    }
+
+    for (const el of merged) {
       outerParent.insertBefore(el, outerTag);
     }
-    if (afterTag.hasChildNodes()) outerParent.insertBefore(afterTag, outerTag);
-
     outerTag.remove();
   }
 
