@@ -1,0 +1,20 @@
+{
+  "name": "rich-text-editor",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Noodling with a basic rich text editor for modern browsers. Not too abstract. We come from HTML, we go back to HTML.",
+  "main": "rich-text-editor.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/boutell/rich-text-editor.git"
+  },
+  "author": "Thomas Boutell",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/boutell/rich-text-editor/issues"
+  },
+  "homepage": "https://github.com/boutell/rich-text-editor#readme"
+}

@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Page</title>
+</head>
+<body>
+  <header>
+    <h1>Welcome to the Test Page</h1>
+  </header>
+  <main>
+    <section id="doc">
+      <p>Here is a paragraph.</p>
+      <p>Here is another paragraph.</p>
+      <p>Here we already have <strong>some bold</strong>.</p>
+    </section>
+    <nav>
+      <button onclick="bold()">Bold</button>
+    </nav>
+  </main>
+  <footer>
+    <p>Test Page Footer</p>
+  </footer>
+  <script>
+    console.log("This is a test script.");  
+    // Additional JavaScript can be added here
+
+    function bold() {
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const strongElements = wrapRangeInStrong(range);
+      }
+    }
+      
+function wrapRangeInStrong(range) {
+  const textNodes = new Set();
+
+  // Step 1: Handle simple text-only selections
+  if (
+    range.startContainer === range.endContainer &&
+    range.startContainer.nodeType === Node.TEXT_NODE
+  ) {
+    textNodes.add(range.startContainer);
+  } else {
+    const walker = document.createTreeWalker(
+      range.commonAncestorContainer,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+        }
+      }
+    );
+    let node = walker.nextNode();
+    while (node) {
+      textNodes.add(node);
+      node = walker.nextNode();
+    }
+  }
+
+  // Step 2: For each text node, split precisely and wrap only the selected portion
+  for (const textNode of textNodes) {
+    let startOffset = 0;
+    let endOffset = textNode.length;
+
+    if (textNode === range.startContainer) startOffset = range.startOffset;
+    if (textNode === range.endContainer) endOffset = range.endOffset;
+
+    if (startOffset >= endOffset) continue;
+
+    const parent = textNode.parentNode;
+    let middle = textNode;
+
+    // Split after end first to preserve correct reference
+    if (endOffset < middle.length) {
+      middle.splitText(endOffset);
+    }
+
+    // Then split before start (this mutates the original node)
+    if (startOffset > 0) {
+      middle = middle.splitText(startOffset);
+    }
+
+    // Now middle contains exactly the selected text
+    const strong = document.createElement('strong');
+    strong.textContent = middle.textContent;
+    parent.replaceChild(strong, middle);
+  }
+}
+</script>
+  <style>
+  </style>
+</body>
+</html>
