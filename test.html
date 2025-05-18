@@ -17,6 +17,7 @@
       <p>Here we already have <strong>some bold</strong>.</p>
     </section>
     <nav>
+      <select name="style"></select>
       <button onclick="toggle('em')">Italic</button>
       <button onclick="toggle('strong')">Bold</button>
     </nav>
@@ -34,6 +35,98 @@ const editor = document.querySelector('#editor');
 
 const isMac = navigator.platform.toLowerCase().includes('mac');
 const meta = isMac ? 'metaKey' : 'ctrlKey';
+
+const styles = [
+  {
+    tag: 'p',
+    label: 'Paragraph'
+  },
+  {
+    tag: 'h1',
+    label: 'Heading 1'
+  },
+  {
+    tag: 'h2',
+    label: 'Heading 2'
+  },
+  {
+    tag: 'h3',
+    label: 'Heading 3'
+  },
+  {
+    tag: 'h4',
+    label: 'Heading 4'
+  },
+  {
+    tag: 'h5',
+    label: 'Heading 5'
+  },
+  {
+    tag: 'h6',
+    label: 'Heading 6'
+  }  
+];
+
+const styleMenu = document.querySelector('[name="style"]');
+
+for (const style of styles) {
+  const option = document.createElement('option');
+  option.setAttribute('value', style.tag);
+  option.innerText = style.label;
+  styleMenu.append(option);
+}
+
+styleMenu.addEventListener('change', e => {
+  const tag = e.target.value;
+  const sel = window.getSelection();
+
+  if (!sel.rangeCount) return;
+
+  const range = sel.getRangeAt(0);
+  const editor = document.querySelector('#editor');
+
+  // Expand to full block elements intersecting the selection
+  const blocks = new Set();
+
+  const walker = document.createTreeWalker(
+    editor,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node) {
+        if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+        if (!editor.contains(node)) return NodeFilter.FILTER_REJECT;
+
+        const isBlock = /^P|H[1-6]$/.test(node.tagName);
+        if (!isBlock) return NodeFilter.FILTER_SKIP;
+
+        // Don't allow the editor itself
+        if (node === editor) return NodeFilter.FILTER_REJECT;
+
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let node = walker.nextNode();
+  while (node) {
+    blocks.add(node);
+    node = walker.nextNode();
+  }
+
+  // Replace each block with the new tag
+  for (const oldBlock of blocks) {
+    if (oldBlock.tagName.toLowerCase() === tag) continue;
+
+    const newBlock = document.createElement(tag);
+    while (oldBlock.firstChild) {
+      newBlock.appendChild(oldBlock.firstChild);
+    }
+    oldBlock.replaceWith(newBlock);
+  }
+
+  // Normalize to merge adjacent text nodes
+  editor.normalize();
+});
 
 editor.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') {
