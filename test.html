@@ -569,9 +569,8 @@ function skipZWS(dir) {
   const focusNode = sel.focusNode;
   const focusOffset = sel.focusOffset;
 
-  const isReversed = isSelectionReversed(sel);
-  const movingNode = isReversed ? anchorNode : focusNode;
-  const movingOffset = isReversed ? anchorOffset : focusOffset;
+  const movingNode = focusNode;
+  const movingOffset = focusOffset;
 
   const pos = isLeft
     ? findTextNodeBackward(movingNode, movingOffset)
@@ -581,9 +580,13 @@ function skipZWS(dir) {
 
   const { node: txt, offset: off } = pos;
 
+  console.log('node:', txt, 'offset:', off);
+
   const isZWS = isLeft
     ? (off > 0 && txt.nodeValue[off - 1] === zws)
     : (off < txt.nodeValue.length && txt.nodeValue[off] === zws);
+
+  console.log(`isZWS: ${isZWS}`);
 
   if (!isZWS) return;
 
@@ -594,29 +597,25 @@ function skipZWS(dir) {
   if (collapsed) {
     newRange.setStart(txt, newOffset);
     newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
   } else {
-    if (!isReversed) {
-      // anchor → focus: move focus
-      newRange.setStart(anchorNode, anchorOffset);
-      newRange.setEnd(txt, newOffset);
-    } else {
-      // reversed: anchor ← focus, move focus
-      newRange.setStart(txt, newOffset);
-      newRange.setEnd(anchorNode, anchorOffset);
-    }
+    sel.extend(txt, newOffset);
   }
-
-  sel.removeAllRanges();
-  sel.addRange(newRange);
 }
 
 function isSelectionReversed(sel) {
   if (sel.anchorNode === sel.focusNode) {
-    return sel.anchorOffset > sel.focusOffset;
+    console.log('same');
+    const reversed = sel.anchorOffset > sel.focusOffset;
+    console.log('reversed is:', reversed);
+    return reversed;
   }
   const range = document.createRange();
   range.setStart(sel.anchorNode, sel.anchorOffset);
   range.setEnd(sel.focusNode, sel.focusOffset);
+  console.log('nodes are:', sel.anchorNode, sel.anchorOffset, sel.focusNode, sel.focusOffset);
+  console.log('collapsed is:', range.collapsed);
   return range.collapsed;
 }
 
