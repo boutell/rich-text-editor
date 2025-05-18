@@ -36,25 +36,59 @@ function toggle(tagname) {
     if (selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);
       console.log('doing my work');
-      toggleInlineTag(range, tagname);
+      return toggleInlineTag(range, tagname);
     }
   });
 }
 
 function toggleInlineTag(range, tagName) {
-  if (!range || range.collapsed) return;
+  if (!range) {
+    return;
+  }
 
   const textNodes = collectTextNodes(range);
   const allInside = [...textNodes].every(node => isInsideTag(node, tagName));
 
   if (allInside) {
-    unwrapTagInRange(range, textNodes, tagName);
+    if (range.collapsed) {
+      return;
+    }
+    return unwrapTagInRange(range, textNodes, tagName);
   } else {
-    wrapRangeInTag(range, tagName);
+    return wrapRangeInTag(range, tagName);
   }
 }
 
 function wrapRangeInTag(range, tagName) {
+
+  // If there is no selection yet, make sure the caret is inside
+  // a suitable tag so the next keystroke produces the expected effect
+  // (e.g. press control-b, start typing, get bold)
+  if (range.collapsed) {
+    console.log('collapsed');
+    // Check if caret is already inside tag
+    if (isInsideTag(range.startContainer, tagName)) {
+      console.log('already set');
+      return; // already bold, do nothing here (or unwrap if desired)
+    }
+
+    const wrapper = document.createElement(tagName);
+    const zws = document.createTextNode('\u200B');
+    wrapper.appendChild(zws);
+    range.insertNode(wrapper);
+
+    // Move caret inside the wrapper
+    range.setStart(zws, 1);
+    range.setEnd(zws, 1);
+
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    // Do not try to restore the selection, we've finessed it already
+    console.log('returning false');
+    return false;
+  }
+
   const textNodes = collectTextNodes(range);
 
   for (const textNode of textNodes) {
@@ -331,7 +365,10 @@ function preserveSelectionByCharacterOffset(container, fn) {
     return;
   }
 
-  fn();
+  if (fn() === false) {
+    // We were asked not to restore the selection
+    return;
+  }
 
   restoreSelectionFromOffsets(container, offsets.start, offsets.end);
 }
@@ -420,6 +457,18 @@ function restoreSelectionFromOffsets(container, startOffset, endOffset) {
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
+    // Fix caret if restored just before a zero-width space
+    if (
+      range.collapsed &&
+      range.startContainer.nodeType === Node.TEXT_NODE &&
+      range.startContainer.nodeValue === '\u200B' &&
+      range.startOffset === 0
+    ) {
+      range.setStart(range.startContainer, 1);
+      range.setEnd(range.startContainer, 1);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }    
   }
 }
 </script>
