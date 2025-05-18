@@ -87,14 +87,53 @@ function toggleInlineTag(range, tagName) {
   const textNodes = collectTextNodes(range);
   const allInside = [...textNodes].every(node => isInsideTag(node, tagName));
 
-  if (allInside) {
-    if (range.collapsed) {
-      return;
-    }
+  if (range.collapsed) {
+    return toggleWhenCollapsed(range, tagName);
+  } else if (allInside) {
     return unwrapTagInRange(range, textNodes, tagName);
   } else {
     return wrapRangeInTag(range, tagName);
   }
+}
+
+function toggleWhenCollapsed(range, tagName) {
+  // Check if caret is already inside tag
+  const inside = isInsideTag(range.startContainer, tagName);
+
+  if (inside) {
+    // Exit formatting mode: unwrap by inserting ZWS outside <strong>
+
+    console.log('trying to unwrap');
+    const strong = findClosestTag(range.startContainer, tagName);
+    const parent = strong.parentNode;
+    const zwsNode = document.createTextNode('\u200B');
+    parent.insertBefore(zwsNode, strong.nextSibling);
+
+    // Move caret after the ZWS (which is outside <strong>)
+    const newRange = document.createRange();
+    newRange.setStart(zwsNode, 1);
+    newRange.setEnd(zwsNode, 1);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+
+    return false; // don't restore selection
+  }
+
+  // Not inside the tag — activate formatting
+  const wrapper = document.createElement(tagName);
+  const zws = document.createTextNode('\u200B');
+  wrapper.appendChild(zws);
+  range.insertNode(wrapper);
+
+  // Move caret inside wrapper
+  range.setStart(zws, 1);
+  range.setEnd(zws, 1);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+
+  return false; // handled selection  
 }
 
 function wrapRangeInTag(range, tagName) {
@@ -102,30 +141,6 @@ function wrapRangeInTag(range, tagName) {
   // If there is no selection yet, make sure the caret is inside
   // a suitable tag so the next keystroke produces the expected effect
   // (e.g. press control-b, start typing, get bold)
-  if (range.collapsed) {
-    console.log('collapsed');
-    // Check if caret is already inside tag
-    if (isInsideTag(range.startContainer, tagName)) {
-      console.log('already set');
-      return; // already bold, do nothing here (or unwrap if desired)
-    }
-
-    const wrapper = document.createElement(tagName);
-    const zws = document.createTextNode('\u200B');
-    wrapper.appendChild(zws);
-    range.insertNode(wrapper);
-
-    // Move caret inside the wrapper
-    range.setStart(zws, 1);
-    range.setEnd(zws, 1);
-
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-    // Do not try to restore the selection, we've finessed it already
-    console.log('returning false');
-    return false;
-  }
 
   const textNodes = collectTextNodes(range);
 
