@@ -33,6 +33,8 @@ const zws = '\u200B';
 const editor = document.querySelector('#editor');
 
 editor.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowLeft') skipZWS('backward');
+  if (e.key === 'ArrowRight') skipZWS('forward');
   if (e.key === 'Backspace') {
     console.log('backspace');
     const sel = window.getSelection();
@@ -62,49 +64,6 @@ editor.addEventListener('keydown', (e) => {
     // Now the default behavior will advance over a non-ZWS character as expected
     }
     return;
-  }  
-
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') {
-    console.log('not an arrow');
-    return;
-  }
-
-  const sel = window.getSelection();
-  if (!sel.rangeCount) {
-    console.log('no range count');
-    return;
-  }
-  const range = sel.getRangeAt(0);
-
-  const { startContainer, startOffset, endContainer, endOffset } = range;
-  const isCollapsed = range.collapsed;
-  const forward = e.key === 'ArrowRight';
-  const anchorNode = forward ? endContainer : startContainer;
-  const anchorOffset = forward ? endOffset : startOffset;
-
-  if (anchorNode.nodeType !== Node.TEXT_NODE) {
-    console.log('anchor node is not a text node');
-    return;
-  }
-  const text = anchorNode.nodeValue;
-  if (!text) {
-    console.log('no nodeValue');
-    return;
-  }
-  if (forward && text[anchorOffset] === zws) {
-    console.log('handling zws while moving forward');
-    // Forward: caret or selection endpoint is before ZWS
-    const newOffset = anchorOffset + 1;
-    setSelection(sel, startContainer, startOffset, endContainer, endOffset, forward, newOffset, isCollapsed);
-    // Now the default behavior will advance over a non-ZWS character as expected
-  }
-
-  if (!forward && text[anchorOffset - 1] === zws) {
-    console.log('we are trying to make the fix');
-    // Backward: caret or selection endpoint is after ZWS
-    const newOffset = anchorOffset - 1;
-    setSelection(sel, startContainer, startOffset, endContainer, endOffset, forward, newOffset, isCollapsed);
-    // Now the default behavior will advance over a non-ZWS character as expected
   }
 });
 
@@ -594,6 +553,7 @@ function skipZWS(direction) {
       ? findTextNodeForward(startContainer, startOffset)
       : findTextNodeBackward(startContainer, startOffset)
   );
+  console.log('target is:', target);
 
   if (
     target &&
