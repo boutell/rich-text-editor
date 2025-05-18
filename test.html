@@ -28,8 +28,87 @@
 console.log("This is a test script.");  
 // Additional JavaScript can be added here
 
+const zws = '\u200B';
+
+const editor = document.querySelector('#editor');
+
+editor.addEventListener('keydown', (e) => {
+  if (e.key === 'Backspace') {
+    console.log('backspace');
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+
+    const range = sel.getRangeAt(0);
+    if (!range.collapsed) return;
+
+    const { startContainer, startOffset } = range;
+    if (startContainer.nodeType !== Node.TEXT_NODE) return;
+
+    const text = startContainer.nodeValue;
+    if (startOffset === 0) return; // nothing to backspace
+
+    if (text[startOffset - 1] === '\u200B') {
+      // Remove ZWS manually
+      const updated = text.slice(0, startOffset - 1) + text.slice(startOffset);
+      startContainer.nodeValue = updated;
+
+      // Move caret back by 1
+      const newOffset = startOffset - 1;
+      const newRange = document.createRange();
+      newRange.setStart(startContainer, newOffset);
+      newRange.setEnd(startContainer, newOffset);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+    // Now the default behavior will advance over a non-ZWS character as expected
+    }
+    return;
+  }  
+
+  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') {
+    console.log('not an arrow');
+    return;
+  }
+
+  const sel = window.getSelection();
+  if (!sel.rangeCount) {
+    console.log('no range count');
+    return;
+  }
+  const range = sel.getRangeAt(0);
+
+  const { startContainer, startOffset, endContainer, endOffset } = range;
+  const isCollapsed = range.collapsed;
+  const forward = e.key === 'ArrowRight';
+  const anchorNode = forward ? endContainer : startContainer;
+  const anchorOffset = forward ? endOffset : startOffset;
+
+  if (anchorNode.nodeType !== Node.TEXT_NODE) {
+    console.log('anchor node is not a text node');
+    return;
+  }
+  const text = anchorNode.nodeValue;
+  if (!text) {
+    console.log('no nodeValue');
+    return;
+  }
+  if (forward && text[anchorOffset] === zws) {
+    console.log('handling zws while moving forward');
+    // Forward: caret or selection endpoint is before ZWS
+    const newOffset = anchorOffset + 1;
+    setSelection(sel, startContainer, startOffset, endContainer, endOffset, forward, newOffset, isCollapsed);
+    // Now the default behavior will advance over a non-ZWS character as expected
+  }
+
+  if (!forward && text[anchorOffset - 1] === zws) {
+    console.log('we are trying to make the fix');
+    // Backward: caret or selection endpoint is after ZWS
+    const newOffset = anchorOffset - 1;
+    setSelection(sel, startContainer, startOffset, endContainer, endOffset, forward, newOffset, isCollapsed);
+    // Now the default behavior will advance over a non-ZWS character as expected
+  }
+});
+
 function toggle(tagname) {
-  const editor = document.querySelector('#editor');
   preserveSelectionByCharacterOffset(editor, () => {
     console.log('in my function');
     const selection = window.getSelection();
@@ -470,6 +549,115 @@ function restoreSelectionFromOffsets(container, startOffset, endOffset) {
       sel.addRange(range);
     }    
   }
+}
+
+
+function setSelection(sel, startC, startO, endC, endO, forward, adjustedOffset, collapsed) {
+  const range = document.createRange();
+
+  if (collapsed) {
+    range.setStart(forward ? endC : startC, adjustedOffset);
+    range.collapse(true);
+  } else {
+    if (forward) {
+      range.setStart(startC, startO);
+      range.setEnd(endC, adjustedOffset);
+    } else {
+      range.setStart(startC, adjustedOffset);
+      range.setEnd(endC, endO);
+    }
+  }
+
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const range2 = sel.getRangeAt(0);
+}
+
+function codeAt(s, offset) {
+  try {
+    return s.charCodeAt(offset);
+  } catch {
+    return undefined;
+  }
+}
+
+function skipZWS(direction) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return;
+
+  const { startContainer, startOffset } = range;
+  const target = (
+    direction === 'forward'
+      ? findTextNodeForward(startContainer, startOffset)
+      : findTextNodeBackward(startContainer, startOffset)
+  );
+
+  if (
+    target &&
+    target.node.nodeValue &&
+    (
+      (direction === 'forward' && target.node.nodeValue[target.offset] === '\u200B') ||
+      (direction === 'backward' && target.node.nodeValue[target.offset - 1] === '\u200B')
+    )
+  ) {
+    const offset = direction === 'forward' ? target.offset + 1 : target.offset - 1;
+
+    const newRange = document.createRange();
+    newRange.setStart(target.node, offset);
+    newRange.setEnd(target.node, offset);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  }
+}
+
+function findTextNodeForward(node, offset) {
+  if (node.nodeType === Node.TEXT_NODE && offset < node.nodeValue.length) {
+    return { node, offset };
+  }
+
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
+  walker.currentNode = node;
+
+  while (walker.nextNode()) {
+    const n = walker.currentNode;
+    if (n.nodeValue.length > 0) {
+      return { node: n, offset: 0 };
+    }
+  }
+
+  return null;
+}
+
+function findTextNodeBackward(node, offset) {
+  if (node.nodeType === Node.TEXT_NODE && offset > 0) {
+    return { node, offset };
+  }
+
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
+  walker.currentNode = node;
+
+  while (walker.previousNode()) {
+    const n = walker.currentNode;
+    const len = n.nodeValue.length;
+    if (len > 0) {
+      return { node: n, offset: len };
+    }
+  }
+
+  return null;
 }
 </script>
   <style>
