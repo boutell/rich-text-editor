@@ -32,11 +32,20 @@ const zws = '\u200B';
 
 const editor = document.querySelector('#editor');
 
+const isMac = navigator.platform.toLowerCase().includes('mac');
+const meta = isMac ? 'metaKey' : 'ctrlKey';
+
 editor.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') {
     skipZWS('left');
   } else if (e.key === 'ArrowRight') {
     skipZWS('right');
+  } else if (e[meta] && e.key === 'b') {
+    e.preventDefault();
+    toggle('strong');
+  } else if (e[meta] && e.key === 'i') {
+    e.preventDefault();
+    toggle('em');
   } else if (e.key === 'Backspace') {
     console.log('backspace');
     const sel = window.getSelection();
@@ -63,7 +72,7 @@ editor.addEventListener('keydown', (e) => {
       newRange.setEnd(startContainer, newOffset);
       sel.removeAllRanges();
       sel.addRange(newRange);
-    // Now the default behavior will advance over a non-ZWS character as expected
+      // Now the default behavior will advance over a non-ZWS character as expected
     }
     return;
   }
