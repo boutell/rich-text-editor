@@ -128,6 +128,63 @@ styleMenu.addEventListener('change', e => {
   editor.normalize();
 });
 
+function updateStyleMenu() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+
+  const range = sel.getRangeAt(0);
+  const editor = document.querySelector('#editor');
+
+  const blocks = new Set();
+
+  const walker = document.createTreeWalker(
+    editor,
+    NodeFilter.SHOW_ELEMENT,
+    {
+      acceptNode(node) {
+        if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+        if (!editor.contains(node)) return NodeFilter.FILTER_REJECT;
+
+        const isBlock = /^P|H[1-6]$/.test(node.tagName);
+        if (!isBlock) return NodeFilter.FILTER_SKIP;
+
+        // Don't allow the editor itself
+        if (node === editor) return NodeFilter.FILTER_REJECT;
+
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }
+  );
+
+  let node = walker.nextNode();
+  while (node) {
+    blocks.add(node.tagName.toLowerCase());
+    node = walker.nextNode();
+  }
+
+  // Clear previous "Multiple Styles" option if present
+  const existing = styleMenu.querySelector('[value="_multiple"]');
+  if (existing) existing.remove();
+
+  if (blocks.size === 1) {
+    styleMenu.value = [...blocks][0];
+  } else if (blocks.size > 1) {
+    const option = document.createElement('option');
+    option.value = '_multiple';
+    option.textContent = 'Multiple Styles';
+    option.disabled = true;
+    option.selected = true;
+    styleMenu.prepend(option);
+  } else {
+    // No block? Default to paragraph
+    styleMenu.value = 'p';
+  }
+}
+
+document.addEventListener('selectionchange', () => {
+  updateStyleMenu();
+});
+
 editor.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') {
     skipZWS('left');
