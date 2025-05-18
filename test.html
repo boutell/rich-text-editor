@@ -33,9 +33,11 @@ const zws = '\u200B';
 const editor = document.querySelector('#editor');
 
 editor.addEventListener('keydown', (e) => {
-  if (e.key === 'ArrowLeft') skipZWS('backward');
-  if (e.key === 'ArrowRight') skipZWS('forward');
-  if (e.key === 'Backspace') {
+  if (e.key === 'ArrowLeft') {
+    skipZWS('left');
+  } else if (e.key === 'ArrowRight') {
+    skipZWS('right');
+  } else if (e.key === 'Backspace') {
     console.log('backspace');
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
@@ -525,7 +527,6 @@ function restoreSelectionFromOffsets(container, startOffset, endOffset) {
   }
 }
 
-
 function setSelection(sel, startC, startO, endC, endO, forward, adjustedOffset, collapsed) {
   const range = document.createRange();
 
@@ -555,67 +556,75 @@ function codeAt(s, offset) {
   }
 }
 
-function skipZWS(direction) {
+function skipZWS(dir) {
   const sel = window.getSelection();
-  if (!sel || !sel.rangeCount) return;
+  if (!sel.rangeCount) return;
 
   const range = sel.getRangeAt(0);
-  if (!range.collapsed) return;
+  const collapsed = range.collapsed;
+  const isLeft = dir === 'left';
 
-  const { startContainer, startOffset } = range;
-  const target = (
-    direction === 'forward'
-      ? findTextNodeForward(startContainer, startOffset)
-      : findTextNodeBackward(startContainer, startOffset)
-  );
-  console.log('target is:', target);
+  const anchorNode = sel.anchorNode;
+  const anchorOffset = sel.anchorOffset;
+  const focusNode = sel.focusNode;
+  const focusOffset = sel.focusOffset;
 
-  if (
-    target &&
-    target.node.nodeValue &&
-    (
-      (direction === 'forward' && target.node.nodeValue[target.offset] === '\u200B') ||
-      (direction === 'backward' && target.node.nodeValue[target.offset - 1] === '\u200B')
-    )
-  ) {
-    const offset = direction === 'forward' ? target.offset + 1 : target.offset - 1;
+  const isReversed = isSelectionReversed(sel);
+  const movingNode = isReversed ? anchorNode : focusNode;
+  const movingOffset = isReversed ? anchorOffset : focusOffset;
 
-    const newRange = document.createRange();
-    newRange.setStart(target.node, offset);
-    newRange.setEnd(target.node, offset);
-    sel.removeAllRanges();
-    sel.addRange(newRange);
-  }
-}
+  const pos = isLeft
+    ? findTextNodeBackward(movingNode, movingOffset)
+    : findTextNodeForward(movingNode, movingOffset);
 
-function findTextNodeForward(node, offset) {
-  if (node.nodeType === Node.TEXT_NODE && offset < node.nodeValue.length) {
-    return { node, offset };
-  }
+  if (!pos.node) return;
 
-  const walker = document.createTreeWalker(
-    document.body,
-    NodeFilter.SHOW_TEXT,
-    null,
-    false
-  );
-  walker.currentNode = node;
+  const { node: txt, offset: off } = pos;
 
-  while (walker.nextNode()) {
-    const n = walker.currentNode;
-    if (n.nodeValue.length > 0) {
-      return { node: n, offset: 0 };
+  const isZWS = isLeft
+    ? (off > 0 && txt.nodeValue[off - 1] === zws)
+    : (off < txt.nodeValue.length && txt.nodeValue[off] === zws);
+
+  if (!isZWS) return;
+
+  const newOffset = isLeft ? off - 1 : off + 1;
+
+  const newRange = document.createRange();
+
+  if (collapsed) {
+    newRange.setStart(txt, newOffset);
+    newRange.collapse(true);
+  } else {
+    if (!isReversed) {
+      // anchor → focus: move focus
+      newRange.setStart(anchorNode, anchorOffset);
+      newRange.setEnd(txt, newOffset);
+    } else {
+      // reversed: anchor ← focus, move focus
+      newRange.setStart(txt, newOffset);
+      newRange.setEnd(anchorNode, anchorOffset);
     }
   }
 
-  return null;
+  sel.removeAllRanges();
+  sel.addRange(newRange);
 }
 
+function isSelectionReversed(sel) {
+  if (sel.anchorNode === sel.focusNode) {
+    return sel.anchorOffset > sel.focusOffset;
+  }
+  const range = document.createRange();
+  range.setStart(sel.anchorNode, sel.anchorOffset);
+  range.setEnd(sel.focusNode, sel.focusOffset);
+  return range.collapsed;
+}
+
+// Walk backward across text‐node boundaries
 function findTextNodeBackward(node, offset) {
   if (node.nodeType === Node.TEXT_NODE && offset > 0) {
     return { node, offset };
   }
-
   const walker = document.createTreeWalker(
     document.body,
     NodeFilter.SHOW_TEXT,
@@ -623,16 +632,31 @@ function findTextNodeBackward(node, offset) {
     false
   );
   walker.currentNode = node;
-
   while (walker.previousNode()) {
     const n = walker.currentNode;
     const len = n.nodeValue.length;
-    if (len > 0) {
-      return { node: n, offset: len };
-    }
+    if (len > 0) return { node: n, offset: len };
   }
+  return { node: null, offset: 0 };
+}
 
-  return null;
+// Walk forward across text‐node boundaries
+function findTextNodeForward(node, offset) {
+  if (node.nodeType === Node.TEXT_NODE && offset < node.nodeValue.length) {
+    return { node, offset };
+  }
+  const walker = document.createTreeWalker(
+    document.body,
+    NodeFilter.SHOW_TEXT,
+    null,
+    false
+  );
+  walker.currentNode = node;
+  while (walker.nextNode()) {
+    const n = walker.currentNode;
+    if (n.nodeValue.length > 0) return { node: n, offset: 0 };
+  }
+  return { node: null, offset: 0 };
 }
 </script>
   <style>
