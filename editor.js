@@ -5,7 +5,6 @@ const meta = isMac ? 'metaKey' : 'ctrlKey';
 
 export default class Editor {
   constructor(editorEl, { styles, toggles, controlsEl }) {
-    console.log('controlsEl was:', controlsEl);
     this.editor = editorEl;
     this.editor.setAttribute('contenteditable', 'true');
     this.styles = styles || [
@@ -147,11 +146,15 @@ export default class Editor {
       } else if (e.key === 'ArrowRight') {
         skipZWS('right');
       } else if (e[meta] && e.key === 'b') {
-        e.preventDefault();
-        toggle(this.editor, 'strong');
+        if (this.toggles.includes('strong')) {
+          e.preventDefault();
+          this.toggle('strong');
+        }
       } else if (e[meta] && e.key === 'i') {
-        e.preventDefault();
-        toggle(this.editor, 'em');
+        if (this.toggles.includes('em')) {
+          e.preventDefault();
+          this.toggle('em');
+        }
       } else if (e.key === 'Backspace') {
         removeZWSLeft();
       } else if (e.key === 'Enter') {
@@ -267,14 +270,21 @@ function wrapRangeInTag(range, tagName) {
   const textNodes = collectTextNodes(range);
 
   for (const textNode of textNodes) {
-    if (isInsideTag(textNode, tagName)) continue;
-
+    // Determine the relevant slice of this node to wrap
     let startOffset = 0;
     let endOffset = textNode.length;
 
-    if (textNode === range.startContainer) startOffset = range.startOffset;
-    if (textNode === range.endContainer) endOffset = range.endOffset;
-    if (startOffset >= endOffset) continue;
+    if (textNode === range.startContainer) {
+      startOffset = range.startOffset;
+    }
+
+    if (textNode === range.endContainer) {
+      endOffset = range.endOffset;
+    }
+
+    if (startOffset >= endOffset) {
+      continue; // no content to wrap
+    }
 
     let middle = textNode;
 
@@ -286,18 +296,32 @@ function wrapRangeInTag(range, tagName) {
       middle = middle.splitText(startOffset);
     }
 
+    if (!middle.textContent.length || isInsideTag(middle, tagName)) {
+      continue;
+    }
+
     const wrapper = document.createElement(tagName);
     wrapper.textContent = middle.textContent;
     middle.parentNode.replaceChild(wrapper, middle);
 
+    // Forward merge: wrapper <tag> + <tag>
     const next = wrapper.nextSibling;
-    if (next && next.nodeType === Node.ELEMENT_NODE && next.tagName === tagName.toUpperCase()) {
+    if (
+      next &&
+      next.nodeType === Node.ELEMENT_NODE &&
+      next.tagName === tagName.toUpperCase()
+    ) {
       while (next.firstChild) wrapper.appendChild(next.firstChild);
       next.remove();
     }
 
+    // Backward merge: <tag> + wrapper
     const prev = wrapper.previousSibling;
-    if (prev && prev.nodeType === Node.ELEMENT_NODE && prev.tagName === tagName.toUpperCase()) {
+    if (
+      prev &&
+      prev.nodeType === Node.ELEMENT_NODE &&
+      prev.tagName === tagName.toUpperCase()
+    ) {
       while (wrapper.firstChild) prev.appendChild(wrapper.firstChild);
       wrapper.remove();
     }
@@ -425,7 +449,6 @@ function splitWrapperForSelectedNode(wrapper, selected) {
 
 function collectTextNodes(range) {
   const nodes = new Set();
-
   if (
     range.startContainer === range.endContainer &&
     range.startContainer.nodeType === Node.TEXT_NODE
@@ -442,11 +465,16 @@ function collectTextNodes(range) {
     );
     let node = walker.nextNode();
     while (node) {
-      nodes.add(node);
+      // DOM selection ranges can start at the end of a node, or end at the beginning of a node,
+      // but these are not interesting to us
+      const startsAtEnd = (node === range.startContainer) && (range.startOffset === node.textContent.length);
+      const endsAtStart = (node === range.endContainer) && (range.endOffset === 0);
+      if (!startsAtEnd && !endsAtStart) {
+        nodes.add(node);
+      }
       node = walker.nextNode();
     }
   }
-
   return nodes;
 }
 
