@@ -10,17 +10,17 @@
     <h1>Welcome to the Test Page</h1>
   </header>
   <main>
+    <nav>
+      <select name="style"></select>
+      <button onclick="toggle('em')">Italic</button>
+      <button onclick="toggle('strong')">Bold</button>
+    </nav>
     <section contenteditable="true" id="editor">
       <p>Normal <em>italic and unwrapped</em> text.</p>
       <p>Here is a paragraph.</p>
       <p>Here is another paragraph.</p>
       <p>Here we already have <strong>some bold</strong>.</p>
     </section>
-    <nav>
-      <select name="style"></select>
-      <button onclick="toggle('em')">Italic</button>
-      <button onclick="toggle('strong')">Bold</button>
-    </nav>
   </main>
   <footer>
     <p>Test Page Footer</p>
@@ -77,55 +77,66 @@ for (const style of styles) {
 }
 
 styleMenu.addEventListener('change', e => {
-  const tag = e.target.value;
-  const sel = window.getSelection();
+  preserveSelectionByCharacterOffset(editor, () => {
+    const tag = e.target.value;
+    const sel = window.getSelection();
 
-  if (!sel.rangeCount) return;
+    if (!sel.rangeCount) return;
 
-  const range = sel.getRangeAt(0);
-  const editor = document.querySelector('#editor');
+    const range = sel.getRangeAt(0);
+    const editor = document.querySelector('#editor');
 
-  // Expand to full block elements intersecting the selection
-  const blocks = new Set();
+    // Expand to full block elements intersecting the selection
+    const blocks = new Set();
 
-  const walker = document.createTreeWalker(
-    editor,
-    NodeFilter.SHOW_ELEMENT,
-    {
-      acceptNode(node) {
-        if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
-        if (!editor.contains(node)) return NodeFilter.FILTER_REJECT;
+    const walker = document.createTreeWalker(
+      editor,
+      NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode(node) {
+          if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+          if (!editor.contains(node)) return NodeFilter.FILTER_REJECT;
 
-        const isBlock = /^P|H[1-6]$/.test(node.tagName);
-        if (!isBlock) return NodeFilter.FILTER_SKIP;
+          const isBlock = /^P|H[1-6]$/.test(node.tagName);
+          if (!isBlock) return NodeFilter.FILTER_SKIP;
 
-        // Don't allow the editor itself
-        if (node === editor) return NodeFilter.FILTER_REJECT;
+          // Don't allow the editor itself
+          if (node === editor) return NodeFilter.FILTER_REJECT;
 
-        return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
       }
+    );
+
+    if (sel.isCollapsed) {
+      // Insert a ZWS and move past it so that we can restore the
+      // selection to the proper block element when on a new line
+      const zwsNode = document.createTextNode(zws);
+      sel.getRangeAt(0).insertNode(zwsNode);
+      sel.collapse(zwsNode, 1);
+      console.log('did it');
     }
-  );
 
-  let node = walker.nextNode();
-  while (node) {
-    blocks.add(node);
-    node = walker.nextNode();
-  }
-
-  // Replace each block with the new tag
-  for (const oldBlock of blocks) {
-    if (oldBlock.tagName.toLowerCase() === tag) continue;
-
-    const newBlock = document.createElement(tag);
-    while (oldBlock.firstChild) {
-      newBlock.appendChild(oldBlock.firstChild);
+    let node = walker.nextNode();
+    while (node) {
+      blocks.add(node);
+      node = walker.nextNode();
     }
-    oldBlock.replaceWith(newBlock);
-  }
 
-  // Normalize to merge adjacent text nodes
-  editor.normalize();
+    // Replace each block with the new tag
+    for (const oldBlock of blocks) {
+      if (oldBlock.tagName.toLowerCase() === tag) continue;
+
+      const newBlock = document.createElement(tag);
+      while (oldBlock.firstChild) {
+        newBlock.appendChild(oldBlock.firstChild);
+      }
+      oldBlock.replaceWith(newBlock);
+    }
+
+    // Normalize to merge adjacent text nodes
+    editor.normalize();
+  });
 });
 
 function updateStyleMenu() {
@@ -197,33 +208,59 @@ editor.addEventListener('keydown', (e) => {
     e.preventDefault();
     toggle('em');
   } else if (e.key === 'Backspace') {
-    console.log('backspace');
+    removeZWSLeft();
+  } else if (e.key === 'Enter') {
+    e.preventDefault();
+
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
 
     const range = sel.getRangeAt(0);
-    if (!range.collapsed) return;
 
-    const { startContainer, startOffset } = range;
-    if (startContainer.nodeType !== Node.TEXT_NODE) return;
+    // Get current block style from dropdown
+    const selectedTag = styleMenu.value || 'p';
 
-    const text = startContainer.nodeValue;
-    if (startOffset === 0) return; // nothing to backspace
-
-    if (text[startOffset - 1] === '\u200B') {
-      // Remove ZWS manually
-      const updated = text.slice(0, startOffset - 1) + text.slice(startOffset);
-      startContainer.nodeValue = updated;
-
-      // Move caret back by 1
-      const newOffset = startOffset - 1;
-      const newRange = document.createRange();
-      newRange.setStart(startContainer, newOffset);
-      newRange.setEnd(startContainer, newOffset);
-      sel.removeAllRanges();
-      sel.addRange(newRange);
-      // Now the default behavior will advance over a non-ZWS character as expected
+    // Find the current block element we're in
+    let currentBlock = range.startContainer;
+    while (currentBlock && currentBlock !== editor && !/^P|H[1-6]$/i.test(currentBlock.tagName)) {
+      currentBlock = currentBlock.parentNode;
     }
+
+    if (!currentBlock || currentBlock === editor) return;
+
+    // Split the block at the current selection
+    const afterRange = range.cloneRange();
+    afterRange.setEndAfter(currentBlock);
+
+    const fragment = afterRange.extractContents();
+
+    // Create new block of the selected tag
+    const newBlock = document.createElement(selectedTag);
+
+    // Add a ZWS to mark the caret position
+    const zwsNode = document.createTextNode(zws);
+    newBlock.appendChild(zwsNode);
+
+    // Reinsert the content after the split point
+    newBlock.appendChild(fragment);
+
+    // Insert the new block after the current one
+    if (currentBlock.nextSibling) {
+      currentBlock.parentNode.insertBefore(newBlock, currentBlock.nextSibling);
+    } else {
+      currentBlock.parentNode.appendChild(newBlock);
+    }
+
+    // Move caret just after ZWS
+    const newRange = document.createRange();
+    newRange.setStart(zwsNode, 1);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+
+    // Normalize text nodes
+    editor.normalize();
+
     return;
   }
 });
@@ -793,6 +830,37 @@ function findTextNodeForward(node, offset) {
     if (n.nodeValue.length > 0) return { node: n, offset: 0 };
   }
   return { node: null, offset: 0 };
+}
+
+function removeZWSLeft() {
+  console.log('backspace');
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return;
+
+  const { startContainer, startOffset } = range;
+  if (startContainer.nodeType !== Node.TEXT_NODE) return;
+
+  const text = startContainer.nodeValue;
+  if (startOffset === 0) return; // nothing to backspace
+
+  if (text[startOffset - 1] === '\u200B') {
+    // Remove ZWS manually
+    const updated = text.slice(0, startOffset - 1) + text.slice(startOffset);
+    startContainer.nodeValue = updated;
+
+    // Move caret back by 1
+    const newOffset = startOffset - 1;
+    const newRange = document.createRange();
+    newRange.setStart(startContainer, newOffset);
+    newRange.setEnd(startContainer, newOffset);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    // Now the default behavior will advance over a non-ZWS character as expected
+  }
+  return;
 }
 </script>
   <style>
