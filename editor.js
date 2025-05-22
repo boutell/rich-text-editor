@@ -65,19 +65,74 @@ export default class Editor {
           node = walker.nextNode();
         }
 
-        for (const oldBlock of blocks) {
-          if (oldBlock.tagName.toLowerCase() === tag) continue;
-          const newBlock = document.createElement(tag);
-          while (oldBlock.firstChild) {
-            newBlock.appendChild(oldBlock.firstChild);
-          }
-          oldBlock.replaceWith(newBlock);
+        if (tag === 'li') {
+          this.convertToList([...blocks]);
+        } else {
+          this.updateBlocks(blocks, tag);
         }
-
         this.editor.normalize();
       });
     });
     this.controls.appendChild(this.styleMenu);
+  }
+
+  convertToList(blocks) {
+    if (!blocks.length) return;
+  
+    let ul = document.createElement('ul');
+    const liElements = [];
+  
+    for (const block of blocks) {
+      const li = document.createElement('li');
+      while (block.firstChild) {
+        li.appendChild(block.firstChild);
+      }
+      liElements.push(li);
+    }
+  
+    const first = blocks[0];
+  
+    // Insert UL before removing the blocks
+    first.parentNode.insertBefore(ul, first);
+  
+    for (let i = 0; i < blocks.length; i++) {
+      blocks[i].replaceWith(liElements[i]);
+      ul.appendChild(liElements[i]);
+    }
+  
+    // Check for adjacent ULs to merge
+    const prev = ul.previousElementSibling;
+    const next = ul.nextElementSibling;
+  
+    if (prev && prev.nodeName === 'UL') {
+      while (ul.firstChild) prev.appendChild(ul.firstChild);
+      ul.remove();
+      ul = prev;
+    }
+  
+    if (next && next.nodeName === 'UL') {
+      while (next.firstChild) ul.appendChild(next.firstChild);
+      next.remove();
+    }
+  }
+
+  updateBlocks(blocks, tag) {
+    for (const oldBlock of blocks) {
+      if (oldBlock.tagName.toLowerCase() === tag) continue;
+      const newBlock = document.createElement(tag);
+      while (oldBlock.firstChild) {
+        newBlock.appendChild(oldBlock.firstChild);
+      }
+      oldBlock.replaceWith(newBlock);
+    }
+    for (const oldBlock of blocks) {
+      if (oldBlock.tagName.toLowerCase() === tag) continue;
+      const newBlock = document.createElement(tag);
+      while (oldBlock.firstChild) {
+        newBlock.appendChild(oldBlock.firstChild);
+      }
+      oldBlock.replaceWith(newBlock);
+    }
   }
 
   setupToggles() {
@@ -225,6 +280,68 @@ export default class Editor {
     }
 
     restoreSelectionFromOffsets(container, offsets.start, offsets.end);
+  }
+
+  makeUnorderedList() {
+    preserveSelectionByCharacterOffset(this.editor, () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+  
+      const range = sel.getRangeAt(0);
+      const blocks = new Set();
+  
+      const walker = document.createTreeWalker(
+        this.editor,
+        NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode: (node) => {
+            if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+            if (!this.editor.contains(node)) return NodeFilter.FILTER_REJECT;
+            if (/^P|H[1-6]|LI$/.test(node.tagName) === false) return NodeFilter.FILTER_SKIP;
+            if (node === this.editor) return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+  
+      let node = walker.nextNode();
+      while (node) {
+        blocks.add(node);
+        node = walker.nextNode();
+      }
+  
+      // If nothing selected, try to find current block
+      if (blocks.size === 0 && !sel.isCollapsed) {
+        let node = range.startContainer;
+        while (node && node !== this.editor) {
+          if (/^P|H[1-6]|LI$/.test(node.tagName)) {
+            blocks.add(node);
+            break;
+          }
+          node = node.parentNode;
+        }
+      }
+  
+      if (blocks.size === 0) return;
+  
+      const ul = document.createElement('ul');
+  
+      for (const block of blocks) {
+        const li = document.createElement('li');
+  
+        while (block.firstChild) {
+          li.appendChild(block.firstChild);
+        }
+  
+        block.replaceWith(li);
+        ul.appendChild(li);
+      }
+  
+      // Insert UL where the first block was
+      const [firstBlock] = blocks;
+      firstBlock.parentNode.insertBefore(ul, firstBlock);
+      this.editor.normalize();
+    });
   }
 
 }

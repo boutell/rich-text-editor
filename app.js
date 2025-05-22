@@ -39,7 +39,11 @@ const styles = [
   {
     tag: 'h6',
     label: 'Heading 6'
-  }  
+  },
+  {
+    tag: 'li',
+    label: 'Unordered List'
+  }
 ];
 
 const editorEl = document.querySelector('#editor');
