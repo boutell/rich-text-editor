@@ -46,7 +46,7 @@ export default class Editor {
             acceptNode: (node) => {
               if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
               if (!this.editor.contains(node)) return NodeFilter.FILTER_REJECT;
-              if (!/^P|H[1-6]$/.test(node.tagName)) return NodeFilter.FILTER_SKIP;
+              if (!this.isRecognizedBlock(node)) return NodeFilter.FILTER_SKIP;
               if (node === this.editor) return NodeFilter.FILTER_REJECT;
               return NodeFilter.FILTER_ACCEPT;
             }
@@ -117,22 +117,104 @@ export default class Editor {
   }
 
   updateBlocks(blocks, tag) {
+    const replacements = [];
+  
     for (const oldBlock of blocks) {
-      if (oldBlock.tagName.toLowerCase() === tag) continue;
+      const currentTag = oldBlock.tagName.toLowerCase();
+      if (currentTag === tag) continue;
+  
+      const parentUL = oldBlock.parentNode?.nodeName === 'UL' ? oldBlock.parentNode : null;
+  
       const newBlock = document.createElement(tag);
       while (oldBlock.firstChild) {
         newBlock.appendChild(oldBlock.firstChild);
       }
-      oldBlock.replaceWith(newBlock);
+  
+      replacements.push({ newBlock, oldBlock, parentUL });
     }
-    for (const oldBlock of blocks) {
-      if (oldBlock.tagName.toLowerCase() === tag) continue;
-      const newBlock = document.createElement(tag);
-      while (oldBlock.firstChild) {
-        newBlock.appendChild(oldBlock.firstChild);
+  
+    // Replace or remove <li>s without inserting new blocks yet
+    for (const { newBlock, oldBlock, parentUL } of replacements) {
+      if (parentUL && parentUL.parentNode === this.editor) {
+        oldBlock.remove();
+      } else {
+        oldBlock.replaceWith(newBlock);
       }
-      oldBlock.replaceWith(newBlock);
     }
+  
+    // Insert new blocks in original order after their UL
+    const ulToInsertedBlocks = new Map();
+  
+    for (const { newBlock, parentUL } of replacements) {
+      if (!parentUL || parentUL.parentNode !== this.editor) continue;
+      if (!ulToInsertedBlocks.has(parentUL)) {
+        ulToInsertedBlocks.set(parentUL, []);
+      }
+      ulToInsertedBlocks.get(parentUL).push(newBlock);
+    }
+  
+    for (const [ul, blocks] of ulToInsertedBlocks.entries()) {
+      const ref = ul.nextSibling;
+      for (const block of blocks) {
+        this.editor.insertBefore(block, ref);
+      }
+    }
+  
+    // Cleanup: remove or split affected ULs
+    const affectedULs = new Set(replacements.map(r => r.parentUL).filter(Boolean));
+  
+    for (const ul of affectedULs) {
+      const children = Array.from(ul.children);
+      const remainingLIs = children.filter(el => el.tagName === 'LI');
+  
+      if (remainingLIs.length === 0) {
+        ul.remove();
+      } else {
+        const parent = ul.parentNode;
+        let currentGroup = [];
+  
+        for (const child of children) {
+          if (child.tagName === 'LI') {
+            currentGroup.push(child);
+          } else {
+            finalizeGroup(currentGroup, parent, ul);
+            currentGroup = [];
+          }
+        }
+  
+        finalizeGroup(currentGroup, parent, ul);
+        ul.remove();
+      }
+    }
+  
+    function finalizeGroup(group, parent, beforeNode) {
+      if (group.length > 0) {
+        const newUL = document.createElement('ul');
+        group.forEach(li => newUL.appendChild(li));
+        parent.insertBefore(newUL, beforeNode);
+      }
+    }
+  }
+
+  isRecognizedBlock(node) {
+    if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
+  
+    const tag = node.tagName.toLowerCase();
+    console.log(tag);
+    const recognizedTags = this.styles.map(style => style.tag);
+  
+    if (!recognizedTags.includes(tag)) return false;
+  
+    if (tag === 'li') {
+      // Must be top-level <li> in a <ul> directly under editor
+      const parent = node.parentNode;
+      console.log(parent?.nodeName, parent.parentNode);
+      const happy = parent?.nodeName === 'UL' && parent.parentNode === this.editor;
+      console.log(happy);
+      return happy;
+    }
+  
+    return true;
   }
 
   setupToggles() {
@@ -149,10 +231,10 @@ export default class Editor {
   updateStyleMenu() {
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
-
+  
     const range = sel.getRangeAt(0);
     const blocks = new Set();
-
+  
     const walker = document.createTreeWalker(
       this.editor,
       NodeFilter.SHOW_ELEMENT,
@@ -160,22 +242,22 @@ export default class Editor {
         acceptNode: (node) => {
           if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
           if (!this.editor.contains(node)) return NodeFilter.FILTER_REJECT;
-          if (!/^P|H[1-6]$/.test(node.tagName)) return NodeFilter.FILTER_SKIP;
+          if (!this.isRecognizedBlock(node)) return NodeFilter.FILTER_SKIP;
           if (node === this.editor) return NodeFilter.FILTER_REJECT;
           return NodeFilter.FILTER_ACCEPT;
         }
       }
     );
-
+  
     let node = walker.nextNode();
     while (node) {
       blocks.add(node.tagName.toLowerCase());
       node = walker.nextNode();
     }
-
+  
     const existing = this.styleMenu.querySelector('[value="_multiple"]');
     if (existing) existing.remove();
-
+  
     if (blocks.size === 1) {
       this.styleMenu.value = [...blocks][0];
     } else if (blocks.size > 1) {
@@ -186,7 +268,7 @@ export default class Editor {
       option.selected = true;
       this.styleMenu.prepend(option);
     } else {
-      this.styleMenu.value = 'p';
+      this.styleMenu.value = this.styles[0].tag; // fallback
     }
   }
 
