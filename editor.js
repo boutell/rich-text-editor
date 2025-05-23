@@ -414,7 +414,7 @@ export default class Editor {
     if (!currentBlock || currentBlock === this.editor) return;
   
     const afterRange = range.cloneRange();
-    afterRange.setEndAfter(currentBlock);
+    afterRange.setEnd(range.endContainer, range.endOffset);
     const fragment = afterRange.extractContents();
   
     const newBlock = document.createElement(selectedTag);
