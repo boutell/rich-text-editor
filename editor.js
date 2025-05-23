@@ -276,8 +276,6 @@ export default class Editor {
     document.addEventListener('selectionchange', () => this.updateStyleMenu());
 
     this.editor.addEventListener('keydown', (e) => {
-      const sel = window.getSelection();
-
       if (e.key === 'ArrowLeft') {
         skipZWS('left');
       } else if (e.key === 'ArrowRight') {
@@ -296,46 +294,147 @@ export default class Editor {
         removeZWSLeft();
       } else if (e.key === 'Enter') {
         e.preventDefault();
-        if (!sel.rangeCount) return;
-
-        const range = sel.getRangeAt(0);
-        const selectedTag = this.styleMenu.value || 'p';
-
-        let currentBlock = range.startContainer;
-        while (
-          currentBlock &&
-          currentBlock !== this.editor &&
-          !/^P|H[1-6]$/i.test(currentBlock.tagName)
-        ) {
-          currentBlock = currentBlock.parentNode;
-        }
-
-        if (!currentBlock || currentBlock === this.editor) return;
-
-        const afterRange = range.cloneRange();
-        afterRange.setEndAfter(currentBlock);
-
-        const fragment = afterRange.extractContents();
-        const newBlock = document.createElement(selectedTag);
+        this.handleEnterKey();
+      }
+    });
+  }
+  handleEnterKey() {
+    const sel = window.getSelection();
+    if (!sel.rangeCount) return;
+  
+    const range = sel.getRangeAt(0);
+    const selectedTag = this.styleMenu.value || 'p';
+  
+    // Determine if we're in a top-level <li>
+    let currentNode = range.startContainer;
+    while (currentNode && currentNode !== this.editor) {
+      if (currentNode.tagName === 'LI') break;
+      currentNode = currentNode.parentNode;
+    }
+  
+    const isInList = currentNode?.tagName === 'LI' &&
+                     currentNode.parentNode?.nodeName === 'UL' &&
+                     currentNode.parentNode.parentNode === this.editor;
+  
+    if (isInList) {
+      const li = currentNode;
+  
+      // Case: empty <li> — exit the list
+      if (li.textContent.replace(/\u200B/g, '').trim() === '') {      
+        const styleTag = this.styles[0]?.tag || 'p';
+        const newBlock = document.createElement(styleTag);
         const zwsNode = document.createTextNode(zws);
         newBlock.appendChild(zwsNode);
-        newBlock.appendChild(fragment);
-
-        if (currentBlock.nextSibling) {
-          currentBlock.parentNode.insertBefore(newBlock, currentBlock.nextSibling);
-        } else {
-          currentBlock.parentNode.appendChild(newBlock);
+        
+        // Capture siblings before and after <li>
+        const ul = li.parentNode;
+        const parent = ul.parentNode;
+        const beforeLIs = [];
+        const afterLIs = [];
+        
+        let found = false;
+        for (const child of [...ul.children]) {
+          if (child === li) {
+            found = true;
+          } else if (!found) {
+            beforeLIs.push(child);
+          } else {
+            afterLIs.push(child);
+          }
         }
-
+        
+        li.remove();
+        
+        // Insert new block between list fragments
+        parent.insertBefore(newBlock, ul.nextSibling);
+        
+        // Remove or split <ul>
+        if (beforeLIs.length) {
+          const beforeUL = document.createElement('ul');
+          beforeLIs.forEach(li => beforeUL.appendChild(li));
+          parent.insertBefore(beforeUL, newBlock);
+        }
+        
+        if (afterLIs.length) {
+          const afterUL = document.createElement('ul');
+          afterLIs.forEach(li => afterUL.appendChild(li));
+          parent.insertBefore(afterUL, newBlock.nextSibling);
+        }
+        
+        // Remove original <ul>
+        ul.remove();
+        
+        // Move caret into new block
         const newRange = document.createRange();
         newRange.setStart(zwsNode, 1);
         newRange.collapse(true);
         sel.removeAllRanges();
         sel.addRange(newRange);
-
+        
         this.editor.normalize();
+        return;
       }
-    });
+  
+      // Case: non-empty <li> — split
+      const afterRange = range.cloneRange();
+      afterRange.setEndAfter(range.endContainer);
+      const fragment = afterRange.extractContents();
+  
+      const newLI = document.createElement('li');
+      const zwsNode = document.createTextNode(zws);
+      newLI.appendChild(zwsNode);
+      newLI.appendChild(fragment);
+  
+      if (currentNode.nextSibling) {
+        currentNode.parentNode.insertBefore(newLI, currentNode.nextSibling);
+      } else {
+        currentNode.parentNode.appendChild(newLI);
+      }
+  
+      const newRange = document.createRange();
+      newRange.setStart(zwsNode, 1);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+  
+      this.editor.normalize(); // ✅ normalize after split
+      return;
+    }
+  
+    // Otherwise, fall back to default non-list block split
+    let currentBlock = range.startContainer;
+    while (
+      currentBlock &&
+      currentBlock !== this.editor &&
+      !/^P|H[1-6]$/i.test(currentBlock.tagName)
+    ) {
+      currentBlock = currentBlock.parentNode;
+    }
+  
+    if (!currentBlock || currentBlock === this.editor) return;
+  
+    const afterRange = range.cloneRange();
+    afterRange.setEndAfter(currentBlock);
+  
+    const fragment = afterRange.extractContents();
+    const newBlock = document.createElement(selectedTag);
+    const zwsNode = document.createTextNode(zws);
+    newBlock.appendChild(zwsNode);
+    newBlock.appendChild(fragment);
+  
+    if (currentBlock.nextSibling) {
+      currentBlock.parentNode.insertBefore(newBlock, currentBlock.nextSibling);
+    } else {
+      currentBlock.parentNode.appendChild(newBlock);
+    }
+  
+    const newRange = document.createRange();
+    newRange.setStart(zwsNode, 1);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+  
+    this.editor.normalize(); // ✅ normalize always
   }
   toggle(tagname) {
     this.preserveSelectionByCharacterOffset(() => {
