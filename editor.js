@@ -200,7 +200,6 @@ export default class Editor {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
   
     const tag = node.tagName.toLowerCase();
-    console.log(tag);
     const recognizedTags = this.styles.map(style => style.tag);
   
     if (!recognizedTags.includes(tag)) return false;
@@ -208,9 +207,7 @@ export default class Editor {
     if (tag === 'li') {
       // Must be top-level <li> in a <ul> directly under editor
       const parent = node.parentNode;
-      console.log(parent?.nodeName, parent.parentNode);
       const happy = parent?.nodeName === 'UL' && parent.parentNode === this.editor;
-      console.log(happy);
       return happy;
     }
   
@@ -281,12 +278,12 @@ export default class Editor {
       } else if (e.key === 'ArrowRight') {
         skipZWS('right');
       } else if (e[meta] && e.key === 'b') {
-        if (this.toggles.includes('strong')) {
+        if (this.toggles.some(toggle => toggle.tag === 'strong')) {
           e.preventDefault();
           this.toggle('strong');
         }
       } else if (e[meta] && e.key === 'i') {
-        if (this.toggles.includes('em')) {
+        if (this.toggles.some(toggle => toggle.tag === 'em')) {
           e.preventDefault();
           this.toggle('em');
         }
@@ -303,7 +300,7 @@ export default class Editor {
     if (!sel.rangeCount) return;
   
     const range = sel.getRangeAt(0);
-    const selectedTag = this.styleMenu.value || 'p';
+    const selectedTag = this.styleMenu.value || this.styles[0]?.tag || 'p';
   
     // Determine if we're in a top-level <li>
     let currentNode = range.startContainer;
@@ -319,19 +316,17 @@ export default class Editor {
     if (isInList) {
       const li = currentNode;
   
-      // Case: empty <li> — exit the list
-      if (li.textContent.replace(/\u200B/g, '').trim() === '') {      
+      if (li.textContent.replace(/\u200B/g, '').trim() === '') {
         const styleTag = this.styles[0]?.tag || 'p';
         const newBlock = document.createElement(styleTag);
         const zwsNode = document.createTextNode(zws);
         newBlock.appendChild(zwsNode);
-        
-        // Capture siblings before and after <li>
+  
         const ul = li.parentNode;
         const parent = ul.parentNode;
         const beforeLIs = [];
         const afterLIs = [];
-        
+  
         let found = false;
         for (const child of [...ul.children]) {
           if (child === li) {
@@ -342,66 +337,71 @@ export default class Editor {
             afterLIs.push(child);
           }
         }
-        
+  
         li.remove();
-        
-        // Insert new block between list fragments
         parent.insertBefore(newBlock, ul.nextSibling);
-        
-        // Remove or split <ul>
+  
         if (beforeLIs.length) {
           const beforeUL = document.createElement('ul');
           beforeLIs.forEach(li => beforeUL.appendChild(li));
           parent.insertBefore(beforeUL, newBlock);
         }
-        
+  
         if (afterLIs.length) {
           const afterUL = document.createElement('ul');
           afterLIs.forEach(li => afterUL.appendChild(li));
           parent.insertBefore(afterUL, newBlock.nextSibling);
         }
-        
-        // Remove original <ul>
+  
         ul.remove();
-        
-        // Move caret into new block
+  
         const newRange = document.createRange();
         newRange.setStart(zwsNode, 1);
         newRange.collapse(true);
         sel.removeAllRanges();
         sel.addRange(newRange);
-        
+  
         this.editor.normalize();
         return;
       }
   
-      // Case: non-empty <li> — split
       const afterRange = range.cloneRange();
       afterRange.setEndAfter(range.endContainer);
       const fragment = afterRange.extractContents();
-  
+      
       const newLI = document.createElement('li');
-      const zwsNode = document.createTextNode(zws);
-      newLI.appendChild(zwsNode);
-      newLI.appendChild(fragment);
-  
-      if (currentNode.nextSibling) {
-        currentNode.parentNode.insertBefore(newLI, currentNode.nextSibling);
-      } else {
-        currentNode.parentNode.appendChild(newLI);
+      
+      // Preserve inline formatting
+      const inlineTags = this.getInlineFormattingAncestry(range.startContainer, li);
+      let current = newLI;
+      
+      for (const tag of inlineTags) {
+        const wrapper = document.createElement(tag);
+        current.appendChild(wrapper);
+        current = wrapper;
       }
-  
+      
+      const zwsNode = document.createTextNode(zws);
+      current.appendChild(zwsNode);
+      current.appendChild(fragment);
+      
+      if (li.nextSibling) {
+        li.parentNode.insertBefore(newLI, li.nextSibling);
+      } else {
+        li.parentNode.appendChild(newLI);
+      }
+      
       const newRange = document.createRange();
       newRange.setStart(zwsNode, 1);
       newRange.collapse(true);
       sel.removeAllRanges();
       sel.addRange(newRange);
-  
-      this.editor.normalize(); // ✅ normalize after split
+      
+      this.editor.normalize();
       return;
     }
   
-    // Otherwise, fall back to default non-list block split
+    // Otherwise: default block split with formatting preservation
     let currentBlock = range.startContainer;
     while (
       currentBlock &&
@@ -415,12 +415,22 @@ export default class Editor {
   
     const afterRange = range.cloneRange();
     afterRange.setEndAfter(currentBlock);
-  
     const fragment = afterRange.extractContents();
+  
     const newBlock = document.createElement(selectedTag);
+  
+    const inlineTags = this.getInlineFormattingAncestry(range.startContainer, currentBlock);
+    let current = newBlock;
+  
+    for (const tag of inlineTags) {
+      const wrapper = document.createElement(tag);
+      current.appendChild(wrapper);
+      current = wrapper;
+    }
+  
     const zwsNode = document.createTextNode(zws);
-    newBlock.appendChild(zwsNode);
-    newBlock.appendChild(fragment);
+    current.appendChild(zwsNode);
+    current.appendChild(fragment);
   
     if (currentBlock.nextSibling) {
       currentBlock.parentNode.insertBefore(newBlock, currentBlock.nextSibling);
@@ -434,7 +444,7 @@ export default class Editor {
     sel.removeAllRanges();
     sel.addRange(newRange);
   
-    this.editor.normalize(); // ✅ normalize always
+    this.editor.normalize();
   }
   toggle(tagname) {
     this.preserveSelectionByCharacterOffset(() => {
@@ -524,7 +534,18 @@ export default class Editor {
       this.editor.normalize();
     });
   }
-
+  getInlineFormattingAncestry(node, stopAt) {
+    const tags = [];
+    let current = node.parentNode;
+    while (current && current !== stopAt) {
+      const tag = current.tagName?.toLowerCase();
+      if (this.toggles.some(toggle => toggle.tag === tag)) {
+        tags.unshift(tag);
+      }
+      current = current.parentNode;
+    }
+    return tags;
+  }
 }
 
 function toggleInlineTag(range, tagName) {
@@ -996,3 +1017,5 @@ function removeZWSLeft() {
     sel.addRange(newRange);
   }
 }
+
+
