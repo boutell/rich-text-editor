@@ -41,8 +41,12 @@ const styles = [
     label: 'Heading 6'
   },
   {
-    tag: 'li',
-    label: 'Unordered List'
+    tag: 'ul',
+    label: 'Bulleted List'
+  },
+  {
+    tag: 'ol',
+    label: 'Numbered List'
   }
 ];
 
