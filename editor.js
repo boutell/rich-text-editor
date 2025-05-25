@@ -372,6 +372,9 @@ export default class Editor {
       } else if (e.key === 'Enter') {
         e.preventDefault();
         this.handleEnterKey();
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        this.handleTabKey(e.shiftKey);
       }
     });
   }
@@ -526,6 +529,90 @@ export default class Editor {
     sel.addRange(newRange);
   
     this.editor.normalize();
+  }
+
+  handleTabKey(shiftKey) {
+    this.preserveSelectionByCharacterOffset(() => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount) return;
+  
+      const range = sel.getRangeAt(0);
+      const blocks = new Set();
+  
+      const walker = document.createTreeWalker(
+        this.editor,
+        NodeFilter.SHOW_ELEMENT,
+        {
+          acceptNode: (node) => {
+            if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
+            if (!this.editor.contains(node)) return NodeFilter.FILTER_REJECT;
+            if (node.tagName !== 'LI') return NodeFilter.FILTER_SKIP;
+            const parent = node.parentNode;
+            if (!parent || !['UL', 'OL'].includes(parent.nodeName)) return NodeFilter.FILTER_REJECT;
+            if (parent.parentNode !== this.editor && parent.parentNode.tagName !== 'LI') return NodeFilter.FILTER_REJECT;
+            return NodeFilter.FILTER_ACCEPT;
+          }
+        }
+      );
+  
+      let node = walker.nextNode();
+      while (node) {
+        blocks.add(node);
+        node = walker.nextNode();
+      }
+  
+      if (blocks.size === 0) {
+        // Try single collapsed selection case
+        let node = range.startContainer;
+        while (node && node !== this.editor) {
+          if (node.tagName === 'LI') {
+            blocks.add(node);
+            break;
+          }
+          node = node.parentNode;
+        }
+      }
+  
+      if (blocks.size === 0) return;
+  
+      const lis = [...blocks];
+  
+      if (!shiftKey) {
+        // Indent
+        for (const li of lis) {
+          const prev = li.previousElementSibling;
+          if (!prev || prev.tagName !== 'LI') continue;
+  
+          let sublist = Array.from(prev.children).find(child =>
+            ['UL', 'OL'].includes(child.tagName)
+          );
+  
+          if (!sublist) {
+            sublist = document.createElement(li.parentNode.tagName.toLowerCase());
+            prev.appendChild(sublist);
+          }
+  
+          sublist.appendChild(li);
+        }
+      } else {
+        // Outdent
+        for (const li of lis) {
+          const parentList = li.parentNode;
+          const parentLI = parentList.parentNode;
+  
+          if (!['UL', 'OL'].includes(parentList.nodeName)) continue;
+          if (!parentLI || parentLI.tagName !== 'LI') continue;
+  
+          // Move after parent <li>
+          parentLI.parentNode.insertBefore(li, parentLI.nextSibling);
+  
+          // If the old sublist is empty, remove it
+          if (parentList.children.length === 0) parentList.remove();
+        }
+      }
+  
+      this.editor.normalize();
+    });
   }
 
   toggle(tagname) {
