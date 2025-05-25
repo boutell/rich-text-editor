@@ -1,3 +1,18 @@
+// TODO
+// soft breaks (shift-enter)
+// nested lists
+// blockquotes
+// code font
+// code block
+// figures
+// tables
+// arbitrary atoms (such as youtube embeds)
+// save and load content
+// undo / redo replacement
+// copy / paste replacement
+// paste an image
+// paste a video URL
+
 const zws = '\u200B';
 
 const isMac = navigator.platform.toLowerCase().includes('mac');
