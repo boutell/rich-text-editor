@@ -92,41 +92,89 @@ export default class Editor {
     this.controls.appendChild(this.styleMenu);
   }
   
-  convertToList(blocks, listTag = 'ul') {
+  convertToList(blocks, newTag) {
     if (!blocks.length) return;
   
-    let list = document.createElement(listTag);
-    const liElements = [];
+    // Determine current list type if inside one
+    const parentList = blocks[0].parentNode;
+    const isInList = parentList && (parentList.nodeName === 'UL' || parentList.nodeName === 'OL') && parentList.parentNode === this.editor;
   
-    for (const block of blocks) {
-      const li = document.createElement('li');
-      while (block.firstChild) {
-        li.appendChild(block.firstChild);
+    if (isInList && parentList.nodeName.toLowerCase() !== newTag) {
+      const selectedItems = new Set(blocks);
+      const before = [];
+      const after = [];
+      const fragment = [];
+  
+      let found = false;
+      for (const child of Array.from(parentList.children)) {
+        if (!selectedItems.has(child)) {
+          if (found) after.push(child);
+          else before.push(child);
+        } else {
+          found = true;
+          fragment.push(child);
+        }
       }
-      liElements.push(li);
-    }
   
-    const first = blocks[0];
-    first.parentNode.insertBefore(list, first);
+      // Detach selected items
+      for (const li of fragment) li.remove();
   
-    for (let i = 0; i < blocks.length; i++) {
-      blocks[i].replaceWith(liElements[i]);
-      list.appendChild(liElements[i]);
-    }
+      // Create new list of desired type
+      const newList = document.createElement(newTag);
+      for (const li of fragment) newList.appendChild(li);
   
-    // Merge adjacent lists of the same type
-    const prev = list.previousElementSibling;
-    const next = list.nextElementSibling;
+      const parent = parentList.parentNode;
+      parent.insertBefore(newList, parentList.nextSibling);
   
-    if (prev && prev.nodeName === listTag.toUpperCase()) {
-      while (list.firstChild) prev.appendChild(list.firstChild);
-      list.remove();
-      list = prev;
-    }
+      if (before.length > 0) {
+        const beforeList = document.createElement(parentList.nodeName);
+        for (const li of before) beforeList.appendChild(li);
+        parent.insertBefore(beforeList, newList);
+      }
   
-    if (next && next.nodeName === listTag.toUpperCase()) {
-      while (next.firstChild) list.appendChild(next.firstChild);
-      next.remove();
+      if (after.length > 0) {
+        const afterList = document.createElement(parentList.nodeName);
+        for (const li of after) afterList.appendChild(li);
+        parent.insertBefore(afterList, newList.nextSibling);
+      }
+  
+      // Remove old list if empty
+      if (parentList.children.length === 0) parentList.remove();
+    } else if (!isInList) {
+      // Not in a list: convert blocks to list items and wrap in a new list
+      const list = document.createElement(newTag);
+      const liElements = [];
+  
+      for (const block of blocks) {
+        const li = document.createElement('li');
+        while (block.firstChild) {
+          li.appendChild(block.firstChild);
+        }
+        liElements.push(li);
+      }
+  
+      const first = blocks[0];
+      first.parentNode.insertBefore(list, first);
+  
+      for (let i = 0; i < blocks.length; i++) {
+        blocks[i].replaceWith(liElements[i]);
+        list.appendChild(liElements[i]);
+      }
+  
+      // Merge adjacent lists of the same type
+      const prev = list.previousElementSibling;
+      const next = list.nextElementSibling;
+  
+      if (prev && prev.nodeName.toLowerCase() === newTag) {
+        while (list.firstChild) prev.appendChild(list.firstChild);
+        list.remove();
+        list = prev;
+      }
+  
+      if (next && next.nodeName.toLowerCase() === newTag) {
+        while (next.firstChild) list.appendChild(next.firstChild);
+        next.remove();
+      }
     }
   }
   
@@ -218,6 +266,9 @@ export default class Editor {
       if ((parent.parentNode === this.editor) && (parentName === 'ul' || parentName === 'ol')) {
         return true;
       }
+    } else if (['ul', 'ol'].includes(tag)) {
+      // We recognize the individual li's
+      return false;
     }
     const recognizedTags = this.styles.map(style => style.tag);
     return recognizedTags.includes(tag);
@@ -257,7 +308,10 @@ export default class Editor {
   
     let node = walker.nextNode();
     while (node) {
-      blocks.add(node.tagName.toLowerCase());
+      const name = (
+        (node.tagName === 'LI') ? node.parentNode.tagName : node.tagName
+      ).toLowerCase();
+      blocks.add(name);
       node = walker.nextNode();
     }
   
