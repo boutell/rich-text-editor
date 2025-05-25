@@ -211,9 +211,16 @@ export default class Editor {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
   
     const tag = node.tagName.toLowerCase();
+
+    if (tag === 'li') {
+      const parent = node.parentNode;
+      const parentName = parent.nodeName.toLowerCase();
+      if ((parent.parentNode === this.editor) && (parentName === 'ul' || parentName === 'ol')) {
+        return true;
+      }
+    }
     const recognizedTags = this.styles.map(style => style.tag);
-  
-    return recognizedTags.includes(tag) && node.parentNode === this.editor;
+    return recognizedTags.includes(tag);
   }
 
   setupToggles() {
