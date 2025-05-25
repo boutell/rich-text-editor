@@ -44,16 +44,16 @@ export default class Editor {
       option.innerText = style.label;
       this.styleMenu.append(option);
     }
-
+  
     this.styleMenu.addEventListener('change', e => {
       this.preserveSelectionByCharacterOffset(() => {
         const tag = e.target.value;
         const sel = window.getSelection();
         if (!sel.rangeCount) return;
-
+  
         const range = sel.getRangeAt(0);
         const blocks = new Set();
-
+  
         const walker = document.createTreeWalker(
           this.editor,
           NodeFilter.SHOW_ELEMENT,
@@ -67,34 +67,35 @@ export default class Editor {
             }
           }
         );
-
+  
         if (sel.isCollapsed) {
           const zwsNode = document.createTextNode(zws);
           range.insertNode(zwsNode);
           sel.collapse(zwsNode, 1);
         }
-
+  
         let node = walker.nextNode();
         while (node) {
           blocks.add(node);
           node = walker.nextNode();
         }
-
-        if (tag === 'li') {
-          this.convertToList([...blocks]);
+  
+        if (tag === 'ul' || tag === 'ol') {
+          this.convertToList([...blocks], tag);
         } else {
           this.updateBlocks(blocks, tag);
         }
         this.editor.normalize();
       });
     });
+  
     this.controls.appendChild(this.styleMenu);
   }
-
-  convertToList(blocks) {
+  
+  convertToList(blocks, listTag = 'ul') {
     if (!blocks.length) return;
   
-    let ul = document.createElement('ul');
+    let list = document.createElement(listTag);
     const liElements = [];
   
     for (const block of blocks) {
@@ -106,31 +107,29 @@ export default class Editor {
     }
   
     const first = blocks[0];
-  
-    // Insert UL before removing the blocks
-    first.parentNode.insertBefore(ul, first);
+    first.parentNode.insertBefore(list, first);
   
     for (let i = 0; i < blocks.length; i++) {
       blocks[i].replaceWith(liElements[i]);
-      ul.appendChild(liElements[i]);
+      list.appendChild(liElements[i]);
     }
   
-    // Check for adjacent ULs to merge
-    const prev = ul.previousElementSibling;
-    const next = ul.nextElementSibling;
+    // Merge adjacent lists of the same type
+    const prev = list.previousElementSibling;
+    const next = list.nextElementSibling;
   
-    if (prev && prev.nodeName === 'UL') {
-      while (ul.firstChild) prev.appendChild(ul.firstChild);
-      ul.remove();
-      ul = prev;
+    if (prev && prev.nodeName === listTag.toUpperCase()) {
+      while (list.firstChild) prev.appendChild(list.firstChild);
+      list.remove();
+      list = prev;
     }
   
-    if (next && next.nodeName === 'UL') {
-      while (next.firstChild) ul.appendChild(next.firstChild);
+    if (next && next.nodeName === listTag.toUpperCase()) {
+      while (next.firstChild) list.appendChild(next.firstChild);
       next.remove();
     }
   }
-
+  
   updateBlocks(blocks, tag) {
     const replacements = [];
   
@@ -138,75 +137,72 @@ export default class Editor {
       const currentTag = oldBlock.tagName.toLowerCase();
       if (currentTag === tag) continue;
   
-      const parentUL = oldBlock.parentNode?.nodeName === 'UL' ? oldBlock.parentNode : null;
+      const parentList = ['UL', 'OL'].includes(oldBlock.parentNode?.nodeName) ? oldBlock.parentNode : null;
   
       const newBlock = document.createElement(tag);
       while (oldBlock.firstChild) {
         newBlock.appendChild(oldBlock.firstChild);
       }
   
-      replacements.push({ newBlock, oldBlock, parentUL });
+      replacements.push({ newBlock, oldBlock, parentList });
     }
   
-    // Replace or remove <li>s without inserting new blocks yet
-    for (const { newBlock, oldBlock, parentUL } of replacements) {
-      if (parentUL && parentUL.parentNode === this.editor) {
+    for (const { newBlock, oldBlock, parentList } of replacements) {
+      if (parentList && parentList.parentNode === this.editor) {
         oldBlock.remove();
       } else {
         oldBlock.replaceWith(newBlock);
       }
     }
   
-    // Insert new blocks in original order after their UL
-    const ulToInsertedBlocks = new Map();
+    const listToInsertedBlocks = new Map();
   
-    for (const { newBlock, parentUL } of replacements) {
-      if (!parentUL || parentUL.parentNode !== this.editor) continue;
-      if (!ulToInsertedBlocks.has(parentUL)) {
-        ulToInsertedBlocks.set(parentUL, []);
+    for (const { newBlock, parentList } of replacements) {
+      if (!parentList || parentList.parentNode !== this.editor) continue;
+      if (!listToInsertedBlocks.has(parentList)) {
+        listToInsertedBlocks.set(parentList, []);
       }
-      ulToInsertedBlocks.get(parentUL).push(newBlock);
+      listToInsertedBlocks.get(parentList).push(newBlock);
     }
   
-    for (const [ul, blocks] of ulToInsertedBlocks.entries()) {
-      const ref = ul.nextSibling;
+    for (const [list, blocks] of listToInsertedBlocks.entries()) {
+      const ref = list.nextSibling;
       for (const block of blocks) {
         this.editor.insertBefore(block, ref);
       }
     }
   
-    // Cleanup: remove or split affected ULs
-    const affectedULs = new Set(replacements.map(r => r.parentUL).filter(Boolean));
+    const affectedLists = new Set(replacements.map(r => r.parentList).filter(Boolean));
   
-    for (const ul of affectedULs) {
-      const children = Array.from(ul.children);
+    for (const list of affectedLists) {
+      const children = Array.from(list.children);
       const remainingLIs = children.filter(el => el.tagName === 'LI');
   
       if (remainingLIs.length === 0) {
-        ul.remove();
+        list.remove();
       } else {
-        const parent = ul.parentNode;
+        const parent = list.parentNode;
         let currentGroup = [];
   
         for (const child of children) {
           if (child.tagName === 'LI') {
             currentGroup.push(child);
           } else {
-            finalizeGroup(currentGroup, parent, ul);
+            finalizeGroup(currentGroup, parent, list, list.nodeName);
             currentGroup = [];
           }
         }
   
-        finalizeGroup(currentGroup, parent, ul);
-        ul.remove();
+        finalizeGroup(currentGroup, parent, list, list.nodeName);
+        list.remove();
       }
     }
   
-    function finalizeGroup(group, parent, beforeNode) {
+    function finalizeGroup(group, parent, beforeNode, tagName) {
       if (group.length > 0) {
-        const newUL = document.createElement('ul');
-        group.forEach(li => newUL.appendChild(li));
-        parent.insertBefore(newUL, beforeNode);
+        const newList = document.createElement(tagName);
+        group.forEach(li => newList.appendChild(li));
+        parent.insertBefore(newList, beforeNode);
       }
     }
   }
@@ -217,16 +213,7 @@ export default class Editor {
     const tag = node.tagName.toLowerCase();
     const recognizedTags = this.styles.map(style => style.tag);
   
-    if (!recognizedTags.includes(tag)) return false;
-  
-    if (tag === 'li') {
-      // Must be top-level <li> in a <ul> directly under editor
-      const parent = node.parentNode;
-      const happy = parent?.nodeName === 'UL' && parent.parentNode === this.editor;
-      return happy;
-    }
-  
-    return true;
+    return recognizedTags.includes(tag) && node.parentNode === this.editor;
   }
 
   setupToggles() {
@@ -310,6 +297,7 @@ export default class Editor {
       }
     });
   }
+
   handleEnterKey() {
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
@@ -317,33 +305,35 @@ export default class Editor {
     const range = sel.getRangeAt(0);
     const selectedTag = this.styleMenu.value || this.styles[0]?.tag || 'p';
   
-    // Determine if we're in a top-level <li>
+    // Detect whether we are inside a top-level <li>
     let currentNode = range.startContainer;
     while (currentNode && currentNode !== this.editor) {
       if (currentNode.tagName === 'LI') break;
       currentNode = currentNode.parentNode;
     }
   
-    const isInList = currentNode?.tagName === 'LI' &&
-                     currentNode.parentNode?.nodeName === 'UL' &&
-                     currentNode.parentNode.parentNode === this.editor;
+    const li = currentNode?.tagName === 'LI' ? currentNode : null;
+    const list = li?.parentNode;
+    const isTopLevelListItem =
+      li && list &&
+      ['UL', 'OL'].includes(list.nodeName) &&
+      list.parentNode === this.editor;
   
-    if (isInList) {
-      const li = currentNode;
+    if (isTopLevelListItem) {
+      const listTagName = list.nodeName.toLowerCase();
   
+      // Empty <li> → exit list
       if (li.textContent.replace(/\u200B/g, '').trim() === '') {
-        const styleTag = this.styles[0]?.tag || 'p';
-        const newBlock = document.createElement(styleTag);
+        const newBlock = document.createElement(this.styles[0]?.tag || 'p');
         const zwsNode = document.createTextNode(zws);
         newBlock.appendChild(zwsNode);
   
-        const ul = li.parentNode;
-        const parent = ul.parentNode;
+        const parent = list.parentNode;
         const beforeLIs = [];
         const afterLIs = [];
   
         let found = false;
-        for (const child of [...ul.children]) {
+        for (const child of [...list.children]) {
           if (child === li) {
             found = true;
           } else if (!found) {
@@ -354,21 +344,21 @@ export default class Editor {
         }
   
         li.remove();
-        parent.insertBefore(newBlock, ul.nextSibling);
+        parent.insertBefore(newBlock, list.nextSibling);
   
         if (beforeLIs.length) {
-          const beforeUL = document.createElement('ul');
-          beforeLIs.forEach(li => beforeUL.appendChild(li));
-          parent.insertBefore(beforeUL, newBlock);
+          const beforeList = document.createElement(listTagName);
+          beforeLIs.forEach(li => beforeList.appendChild(li));
+          parent.insertBefore(beforeList, newBlock);
         }
   
         if (afterLIs.length) {
-          const afterUL = document.createElement('ul');
-          afterLIs.forEach(li => afterUL.appendChild(li));
-          parent.insertBefore(afterUL, newBlock.nextSibling);
+          const afterList = document.createElement(listTagName);
+          afterLIs.forEach(li => afterList.appendChild(li));
+          parent.insertBefore(afterList, newBlock.nextSibling);
         }
   
-        ul.remove();
+        list.remove();
   
         const newRange = document.createRange();
         newRange.setStart(zwsNode, 1);
@@ -380,43 +370,42 @@ export default class Editor {
         return;
       }
   
+      // Non-empty <li> → split with preserved formatting
       const afterRange = range.cloneRange();
       afterRange.setEndAfter(range.endContainer);
       const fragment = afterRange.extractContents();
-      
+  
       const newLI = document.createElement('li');
-      
-      // Preserve inline formatting
       const inlineTags = this.getInlineFormattingAncestry(range.startContainer, li);
       let current = newLI;
-      
+  
       for (const tag of inlineTags) {
         const wrapper = document.createElement(tag);
         current.appendChild(wrapper);
         current = wrapper;
       }
-      
+  
       const zwsNode = document.createTextNode(zws);
       current.appendChild(zwsNode);
       current.appendChild(fragment);
-      
+  
       if (li.nextSibling) {
-        li.parentNode.insertBefore(newLI, li.nextSibling);
+        list.insertBefore(newLI, li.nextSibling);
       } else {
-        li.parentNode.appendChild(newLI);
+        list.appendChild(newLI);
       }
-      
+  
       const newRange = document.createRange();
       newRange.setStart(zwsNode, 1);
       newRange.collapse(true);
       sel.removeAllRanges();
       sel.addRange(newRange);
-      
+  
       this.editor.normalize();
       return;
     }
   
-    // Otherwise: default block split with formatting preservation
+    // Default block split
     let currentBlock = range.startContainer;
     while (
       currentBlock &&
@@ -433,7 +422,6 @@ export default class Editor {
     const fragment = afterRange.extractContents();
   
     const newBlock = document.createElement(selectedTag);
-  
     const inlineTags = this.getInlineFormattingAncestry(range.startContainer, currentBlock);
     let current = newBlock;
   
@@ -461,6 +449,7 @@ export default class Editor {
   
     this.editor.normalize();
   }
+
   toggle(tagname) {
     this.preserveSelectionByCharacterOffset(() => {
       const selection = window.getSelection();
@@ -488,67 +477,6 @@ export default class Editor {
     restoreSelectionFromOffsets(container, offsets.start, offsets.end);
   }
 
-  makeUnorderedList() {
-    preserveSelectionByCharacterOffset(this.editor, () => {
-      const sel = window.getSelection();
-      if (!sel.rangeCount) return;
-  
-      const range = sel.getRangeAt(0);
-      const blocks = new Set();
-  
-      const walker = document.createTreeWalker(
-        this.editor,
-        NodeFilter.SHOW_ELEMENT,
-        {
-          acceptNode: (node) => {
-            if (!range.intersectsNode(node)) return NodeFilter.FILTER_REJECT;
-            if (!this.editor.contains(node)) return NodeFilter.FILTER_REJECT;
-            if (/^P|H[1-6]|LI$/.test(node.tagName) === false) return NodeFilter.FILTER_SKIP;
-            if (node === this.editor) return NodeFilter.FILTER_REJECT;
-            return NodeFilter.FILTER_ACCEPT;
-          }
-        }
-      );
-  
-      let node = walker.nextNode();
-      while (node) {
-        blocks.add(node);
-        node = walker.nextNode();
-      }
-  
-      // If nothing selected, try to find current block
-      if (blocks.size === 0 && !sel.isCollapsed) {
-        let node = range.startContainer;
-        while (node && node !== this.editor) {
-          if (/^P|H[1-6]|LI$/.test(node.tagName)) {
-            blocks.add(node);
-            break;
-          }
-          node = node.parentNode;
-        }
-      }
-  
-      if (blocks.size === 0) return;
-  
-      const ul = document.createElement('ul');
-  
-      for (const block of blocks) {
-        const li = document.createElement('li');
-  
-        while (block.firstChild) {
-          li.appendChild(block.firstChild);
-        }
-  
-        block.replaceWith(li);
-        ul.appendChild(li);
-      }
-  
-      // Insert UL where the first block was
-      const [firstBlock] = blocks;
-      firstBlock.parentNode.insertBefore(ul, firstBlock);
-      this.editor.normalize();
-    });
-  }
   getInlineFormattingAncestry(node, stopAt) {
     const tags = [];
     let current = node.parentNode;
