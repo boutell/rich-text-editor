@@ -95,9 +95,11 @@ export default class Editor {
   convertToList(blocks, newTag) {
     if (!blocks.length) return;
   
-    // Determine current list type if inside one
     const parentList = blocks[0].parentNode;
-    const isInList = parentList && (parentList.nodeName === 'UL' || parentList.nodeName === 'OL') && parentList.parentNode === this.editor;
+    const isInList =
+      parentList &&
+      (parentList.nodeName === 'UL' || parentList.nodeName === 'OL') &&
+      parentList.parentNode === this.editor;
   
     if (isInList && parentList.nodeName.toLowerCase() !== newTag) {
       const selectedItems = new Set(blocks);
@@ -120,12 +122,12 @@ export default class Editor {
       for (const li of fragment) li.remove();
   
       // Create new list of desired type
-      const newList = document.createElement(newTag);
+      let newList = document.createElement(newTag);
       for (const li of fragment) newList.appendChild(li);
   
       const parent = parentList.parentNode;
       parent.insertBefore(newList, parentList.nextSibling);
-  
+    
       if (before.length > 0) {
         const beforeList = document.createElement(parentList.nodeName);
         for (const li of before) beforeList.appendChild(li);
@@ -138,11 +140,26 @@ export default class Editor {
         parent.insertBefore(afterList, newList.nextSibling);
       }
   
-      // Remove old list if empty
       if (parentList.children.length === 0) parentList.remove();
+
+      // Merge with adjacent same-type lists
+      const prev = newList.previousElementSibling;
+      const next = newList.nextElementSibling;
+  
+      if (prev && prev.nodeName.toLowerCase() === newTag) {
+        while (newList.firstChild) prev.appendChild(newList.firstChild);
+        newList.remove();
+        newList = prev;
+      }
+  
+      if (next && next.nodeName.toLowerCase() === newTag) {
+        while (next.firstChild) newList.appendChild(next.firstChild);
+        next.remove();
+      }
+      
     } else if (!isInList) {
       // Not in a list: convert blocks to list items and wrap in a new list
-      const list = document.createElement(newTag);
+      let list = document.createElement(newTag);
       const liElements = [];
   
       for (const block of blocks) {
