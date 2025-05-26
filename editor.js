@@ -38,19 +38,19 @@ export default class Editor {
 
   setupStyleMenu() {
     this.styleMenu = document.createElement('select');
-    for (const style of this.styles) {
-      const option = document.createElement('option');
-      option.setAttribute('value', style.tag);
-      option.innerText = style.label;
-      this.styleMenu.append(option);
-    }
+    this.updateStyleMenu();
   
     this.styleMenu.addEventListener('change', e => {
       this.preserveSelectionByCharacterOffset(() => {
         const tag = e.target.value;
         const sel = window.getSelection();
         if (!sel.rangeCount) return;
-  
+
+        const nestedListItems = this.rangeContainsOnlyNestedList(sel.getRangeAt(0));
+        if (nestedListItems) {
+          return this.convertToList(nestedListItems, tag);
+        }
+
         const range = sel.getRangeAt(0);
         const blocks = new Set();
   
@@ -93,14 +93,13 @@ export default class Editor {
   }
   
   convertToList(blocks, newTag) {
+
     if (!blocks.length) return;
   
     const parentList = blocks[0].parentNode;
     const isInList =
       parentList &&
-      (parentList.nodeName === 'UL' || parentList.nodeName === 'OL') &&
-      parentList.parentNode === this.editor;
-  
+      (parentList.nodeName === 'UL' || parentList.nodeName === 'OL');
     if (isInList && parentList.nodeName.toLowerCase() !== newTag) {
       const selectedItems = new Set(blocks);
       const before = [];
@@ -304,11 +303,30 @@ export default class Editor {
 
   updateStyleMenu() {
     const sel = window.getSelection();
-    if (!sel.rangeCount) return;
-  
+    this.styleMenu.innerHTML = '';
+    const nestedListItems = (sel.rangeCount > 0) && this.rangeContainsOnlyNestedList(sel.getRangeAt(0));
+    for (const style of this.styles) {
+      let allow = nestedListItems ? ['ul', 'ol'].includes(style.tag) : true;
+      if (!allow) continue;
+      // TODO be more efficient here
+      const option = document.createElement('option');
+      option.setAttribute('value', style.tag);
+      option.innerText = style.label;
+      this.styleMenu.append(option);
+    }
+    if (!sel.rangeCount) {
+      return;
+    }
+
     const range = sel.getRangeAt(0);
-    const blocks = new Set();
   
+    const blocks = new Set();
+
+    if (nestedListItems) {
+      this.styleMenu.value = nestedListItems[0].parentNode.tagName.toLowerCase();
+      return;
+    }
+
     const walker = document.createTreeWalker(
       this.editor,
       NodeFilter.SHOW_ELEMENT,
@@ -334,7 +352,7 @@ export default class Editor {
   
     const existing = this.styleMenu.querySelector('[value="_multiple"]');
     if (existing) existing.remove();
-  
+
     if (blocks.size === 1) {
       this.styleMenu.value = [...blocks][0];
     } else if (blocks.size > 1) {
@@ -386,7 +404,7 @@ export default class Editor {
     const range = sel.getRangeAt(0);
     const selectedTag = this.styleMenu.value || this.styles[0]?.tag || 'p';
   
-    // Detect whether we are inside a top-level <li>
+    // Detect whether we are inside an <li>
     let currentNode = range.startContainer;
     while (currentNode && currentNode !== this.editor) {
       if (currentNode.tagName === 'LI') break;
@@ -395,12 +413,8 @@ export default class Editor {
   
     const li = currentNode?.tagName === 'LI' ? currentNode : null;
     const list = li?.parentNode;
-    const isTopLevelListItem =
-      li && list &&
-      ['UL', 'OL'].includes(list.nodeName) &&
-      list.parentNode === this.editor;
   
-    if (isTopLevelListItem) {
+    if (list) {
       const listTagName = list.nodeName.toLowerCase();
   
       // Empty <li> → exit list
@@ -654,6 +668,44 @@ export default class Editor {
     }
     return tags;
   }
+
+  // If the selection contains only nested list items, return the list items, otherwise return false
+  rangeContainsOnlyNestedList(range) {
+    const container = range.commonAncestorContainer;
+    if (container.nodeType === Node.TEXT_NODE) {
+      const parent = container.parentNode;
+      if ((parent.tagName === 'LI') && (parent.parentNode.parentNode.tagName === 'LI')) {
+        return [ parent ];
+      }
+    }
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_ELEMENT
+    );
+    let node = walker.nextNode();
+    let good = false;
+    let items = [];
+    while (node) {
+      if (range.intersectsNode(node)) {
+        const name = node.tagName.toLowerCase();
+        if (name === 'li') {
+          if (node.parentNode.parentNode.tagName.toLowerCase() === 'li') {
+            good = true;
+            items.push(node);
+          } else {
+            return false;
+          }
+        }
+        if (this.styles.some(style => style.tag === name)) {
+          if (!['ul', 'ol'].includes(name)) {
+            return false;
+          }
+        }
+      }
+      node = walker.nextNode();
+    }
+    return good && items;
+  }  
 }
 
 function toggleInlineTag(range, tagName) {
@@ -1125,5 +1177,3 @@ function removeZWSLeft() {
     sel.addRange(newRange);
   }
 }
-
-
