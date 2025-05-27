@@ -1,6 +1,6 @@
 // TODO
 // soft breaks (shift-enter)
-// nested lists
+// * nested lists
 // blockquotes
 // code font
 // code block
@@ -669,42 +669,95 @@ export default class Editor {
     return tags;
   }
 
+  // Invokes fn(node) for each node intersecting the selection.
+  //
+  // The editor node itself and its ancestors are never passed to the function.
+  //
+  // The innermost element that contains the entire selection will be passed to the
+  // function if it is a descendant of the editor node.
+  //
+  // Text nodes are included only upon request.
+
+  inSelection(fn, textNodes = false) {
+    const container = range.commonAncestorContainer;
+    const walker = document.createTreeWalker(
+      container,
+      NodeFilter.SHOW_ELEMENT | (textNodes ? NodeFilter.SHOW_TEXT : 0)
+    );
+    const results = [];
+    let node = walker.nextNode();
+    while (node) {
+      if (this.insideEditor(node)) {
+        if (fn())
+        results.push(node);
+      }
+      node = walker.nextNode();
+    }
+    return results;
+  }
+
+  // Returns true if node is inside the editor node.
+  // The editor node itself is not "inside" the editor node
+  inside(node) {
+    return (node !== this.editor) && this.editor.contains(node);
+  }
+
+  // Returns the closest ancestor of `node` within the editor node that
+  // satisfies the selector, which is interpreted within the
+  // scope of the editor node
+  closestInside(node, sel) {
+    const matches = this.editor.querySelectorAll(`:scope ${sel}`);
+    node = node.parentNode;
+    while (node) {
+      if (!this.inside(node)) {
+        return false;
+      }
+      for (const match of matches) {
+        if (match === node) {
+          return match;
+        }
+      }
+      node = node.parentNode;
+    }
+  }
+
   // If the selection contains only nested list items, return the list items, otherwise return false
   rangeContainsOnlyNestedList(range) {
     const container = range.commonAncestorContainer;
-    if (container.nodeType === Node.TEXT_NODE) {
-      const parent = container.parentNode;
-      if ((parent.tagName === 'LI') && (parent.parentNode.parentNode.tagName === 'LI')) {
-        return [ parent ];
-      }
+
+    const entirelyInsideLi = this.closestInside(container, 'li li');
+    if (entirelyInsideLi) {
+      return [ entirelyInsideLi ];
     }
+
+    // The selection as a whole is not entirely inside a single nested li, so walk
+    // the intersected nested li's
     const walker = document.createTreeWalker(
       container,
-      NodeFilter.SHOW_ELEMENT
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT
     );
     let node = walker.nextNode();
     let good = false;
-    let items = [];
+    const items = new Set();
     while (node) {
       if (range.intersectsNode(node)) {
-        const name = node.tagName.toLowerCase();
-        if (name === 'li') {
-          if (node.parentNode.parentNode.tagName.toLowerCase() === 'li') {
-            good = true;
-            items.push(node);
-          } else {
-            return false;
-          }
+        const insideLi = this.closestInside(node, 'li li');
+        if (insideLi) {
+          items.add(insideLi);
+          good = true;
         }
+        const name = node.tagName?.toLowerCase();
         if (this.styles.some(style => style.tag === name)) {
           if (!['ul', 'ol'].includes(name)) {
+            // If the selection touches on styles other than lists,
+            // then it contains things other than nested list items
             return false;
           }
         }
       }
       node = walker.nextNode();
     }
-    return good && items;
+    return good && [...items];
   }  
 }
 
