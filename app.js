@@ -47,6 +47,10 @@ const styles = [
   {
     tag: 'ol',
     label: 'Numbered List'
+  },
+  {
+    tag: 'pre',
+    label: 'Preformatted Text'
   }
 ];
 

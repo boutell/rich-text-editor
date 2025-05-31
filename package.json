@@ -5,7 +5,8 @@
   "description": "Noodling with a basic rich text editor for modern browsers. Not too abstract. We come from HTML, we go back to HTML.",
   "main": "rich-text-editor.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "python3 -m http.server 3000"
   },
   "repository": {
     "type": "git",

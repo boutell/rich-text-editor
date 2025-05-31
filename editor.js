@@ -1,9 +1,9 @@
 // TODO
-// soft breaks (shift-enter)
+// * soft breaks (shift-enter, just get out of browser's way)
 // * nested lists
-// blockquotes
-// code font
-// code block
+// X blockquotes - just another style - headings within them are not urgent for 1.0
+// * basic code block
+// classes on styles
 // figures
 // tables
 // arbitrary atoms (such as youtube embeds)
@@ -388,8 +388,7 @@ export default class Editor {
       } else if (e.key === 'Backspace') {
         removeZWSLeft();
       } else if (e.key === 'Enter') {
-        e.preventDefault();
-        this.handleEnterKey();
+        this.handleEnterKey(e);
       } else if (e.key === 'Tab') {
         e.preventDefault();
         this.handleTabKey(e.shiftKey);
@@ -397,13 +396,57 @@ export default class Editor {
     });
   }
 
-  handleEnterKey() {
+  handleEnterKey(e) {
+    if (e.shiftKey) {
+      // Default browser behavior of inserting <br> is good here.
+      // Inside <pre> default behavior is a newline which is also good
+      return;
+    }
     const sel = window.getSelection();
     if (!sel.rangeCount) return;
-  
-    const range = sel.getRangeAt(0);
+
+    e.preventDefault();
+
+    let range = sel.getRangeAt(0);
+
+    const pre = this.closestInside(range.startContainer, 'pre');
+    if (pre) {
+      // Unfortunately browsers create another <pre> when
+      // shift is not used, so override here
+      if (!range.collapsed) {
+        sel.deleteFromDocument();
+        range = sel.getRangeAt(0);
+      }
+      if (e[meta]) {
+        // Because the enter and shift-enter keys both continue <pre>
+        // with a newline, we need control-enter to escape from <pre>
+        const def = this.styles[0]?.tag || 'p';
+        const parent = pre.parentNode;
+        const style = document.createElement(def);
+        parent.insertBefore(style, pre.nextSibling);
+        const zwsNode = document.createTextNode(zws);
+        style.appendChild(zwsNode);
+        const newRange = document.createRange();
+        newRange.setStart(zwsNode, 1);
+        newRange.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(newRange);
+        console.log('new range set');
+        return;
+      }
+      const node = range.startContainer;
+      const offset = range.startOffset;
+      node.textContent = node.textContent.substring(0, offset) + '\n' + node.textContent.substring(offset);
+      const newRange = document.createRange();
+      newRange.setStart(node, offset + 1);
+      newRange.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(newRange);
+      return;
+    }
+
     const selectedTag = this.styleMenu.value || this.styles[0]?.tag || 'p';
-  
+
     // Detect whether we are inside an <li>
     let currentNode = range.startContainer;
     while (currentNode && currentNode !== this.editor) {
