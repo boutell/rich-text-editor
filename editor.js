@@ -1,9 +1,12 @@
 // TODO
 // * soft breaks (shift-enter, just get out of browser's way)
 // * nested lists
-// X blockquotes - just another style - headings within them are not urgent for 1.0
 // * basic code block
-// classes on styles
+// * classes on styles
+// blockquotes - these do matter - it's common for other content to become blockquoted.
+//   but you only need one level of blockquote, so possibly you could treat this like a
+//   toggle that works at the block level? does that make any sense... it's really
+//   another level above the styles. When you end a blockquote it becomes the same
 // figures
 // tables
 // arbitrary atoms (such as youtube embeds)
@@ -42,13 +45,13 @@ export default class Editor {
   
     this.styleMenu.addEventListener('change', e => {
       this.preserveSelectionByCharacterOffset(() => {
-        const tag = e.target.value;
+        const style = JSON.parse(e.target.value);
         const sel = window.getSelection();
         if (!sel.rangeCount) return;
 
         const nestedListItems = this.rangeContainsOnlyNestedList(sel.getRangeAt(0));
         if (nestedListItems) {
-          return this.convertToList(nestedListItems, tag);
+          return this.convertToList(nestedListItems, style.tag);
         }
 
         const range = sel.getRangeAt(0);
@@ -80,10 +83,10 @@ export default class Editor {
           node = walker.nextNode();
         }
   
-        if (tag === 'ul' || tag === 'ol') {
-          this.convertToList([...blocks], tag);
+        if (style.tag === 'ul' || style.tag === 'ol') {
+          this.convertToList([...blocks], style.tag);
         } else {
-          this.updateBlocks(blocks, tag);
+          this.updateBlocks(blocks, style);
         }
         this.editor.normalize();
       });
@@ -194,21 +197,25 @@ export default class Editor {
     }
   }
   
-  updateBlocks(blocks, tag) {
+  updateBlocks(blocks, style) {
     const replacements = [];
   
     for (const oldBlock of blocks) {
       const currentTag = oldBlock.tagName.toLowerCase();
-      if (currentTag === tag) continue;
-  
-      const parentList = ['UL', 'OL'].includes(oldBlock.parentNode?.nodeName) ? oldBlock.parentNode : null;
-  
-      const newBlock = document.createElement(tag);
-      while (oldBlock.firstChild) {
-        newBlock.appendChild(oldBlock.firstChild);
+      if (currentTag !== style.tag) {
+        const parentList = ['UL', 'OL'].includes(oldBlock.parentNode?.nodeName) ? oldBlock.parentNode : null;
+    
+        const newBlock = document.createElement(style.tag);
+        while (oldBlock.firstChild) {
+          newBlock.appendChild(oldBlock.firstChild);
+        }
+
+        newBlock.setAttribute('class', style.class || '');
+    
+        replacements.push({ newBlock, oldBlock, parentList });
+      } else {
+        oldBlock.setAttribute('class', style.class || '');
       }
-  
-      replacements.push({ newBlock, oldBlock, parentList });
     }
   
     for (const { newBlock, oldBlock, parentList } of replacements) {
@@ -275,7 +282,6 @@ export default class Editor {
     if (!node || node.nodeType !== Node.ELEMENT_NODE) return false;
   
     const tag = node.tagName.toLowerCase();
-
     if (tag === 'li') {
       const parent = node.parentNode;
       const parentName = parent.nodeName.toLowerCase();
@@ -286,8 +292,15 @@ export default class Editor {
       // We recognize the individual li's
       return false;
     }
-    const recognizedTags = this.styles.map(style => style.tag);
-    return recognizedTags.includes(tag);
+    return !!this.findStyleOfBlock(node);
+  }
+
+  // Returns the entry in the styles array that corresponds to the given node,
+  // if any. An implementaiton detail of isRecognizedBlock and rangeContainsOnlyNestedList
+
+  findStyleOfBlock(node) {
+    const classAttr = (node.nodeType === Node.ELEMENT_NODE && node.getAttribute('class')) || '';
+    return this.styles.find(style => (style.tag === node.tagName?.toLowerCase()) && ((style.class || '') === classAttr));
   }
 
   setupToggles() {
@@ -310,7 +323,7 @@ export default class Editor {
       if (!allow) continue;
       // TODO be more efficient here
       const option = document.createElement('option');
-      option.setAttribute('value', style.tag);
+      option.setAttribute('value', JSON.stringify(style));
       option.innerText = style.label;
       this.styleMenu.append(option);
     }
@@ -320,10 +333,10 @@ export default class Editor {
 
     const range = sel.getRangeAt(0);
   
-    const blocks = new Set();
+    const styles = new Set();
 
     if (nestedListItems) {
-      this.styleMenu.value = nestedListItems[0].parentNode.tagName.toLowerCase();
+      this.styleMenu.value = { tag: nestedListItems[0].parentNode.tagName.toLowerCase() };
       return;
     }
 
@@ -343,19 +356,24 @@ export default class Editor {
   
     let node = walker.nextNode();
     while (node) {
-      const name = (
-        (node.tagName === 'LI') ? node.parentNode.tagName : node.tagName
-      ).toLowerCase();
-      blocks.add(name);
+      const style = JSON.stringify(
+        (node.tagName === 'LI') ? {
+          tag: node.parentNode.tagName.toLowerCase()
+        } : {
+          tag: node.tagName.toLowerCase(),
+          class: node.getAttribute('class') || ''
+        }
+      );
+      styles.add(style);
       node = walker.nextNode();
     }
   
     const existing = this.styleMenu.querySelector('[value="_multiple"]');
     if (existing) existing.remove();
 
-    if (blocks.size === 1) {
-      this.styleMenu.value = [...blocks][0];
-    } else if (blocks.size > 1) {
+    if (styles.size === 1) {
+      this.styleMenu.value = [...styles][0];
+    } else if (styles.size > 1) {
       const option = document.createElement('option');
       option.value = '_multiple';
       option.textContent = 'Multiple Styles';
@@ -363,7 +381,7 @@ export default class Editor {
       option.selected = true;
       this.styleMenu.prepend(option);
     } else {
-      this.styleMenu.value = this.styles[0].tag; // fallback
+      this.styleMenu.value = JSON.stringify(this.styles[0]); // fallback
     }
   }
 
@@ -423,6 +441,8 @@ export default class Editor {
         const def = this.styles[0]?.tag || 'p';
         const parent = pre.parentNode;
         const style = document.createElement(def);
+        const className = this.styles[0]?.class || '';
+        style.setAttribute('class', className);
         parent.insertBefore(style, pre.nextSibling);
         const zwsNode = document.createTextNode(zws);
         style.appendChild(zwsNode);
@@ -445,7 +465,7 @@ export default class Editor {
       return;
     }
 
-    const selectedTag = this.styleMenu.value || this.styles[0]?.tag || 'p';
+    const selectedStyle = this.styleMenu.value ? JSON.parse(this.styleMenu.value) : (this.styles[0] || { tag: "p", class: '' });
 
     // Detect whether we are inside an <li>
     let currentNode = range.startContainer;
@@ -463,6 +483,7 @@ export default class Editor {
       // Empty <li> → exit list
       if (li.textContent.replace(/\u200B/g, '').trim() === '') {
         const newBlock = document.createElement(this.styles[0]?.tag || 'p');
+        newBlock.setAttribute('class', this.styles[0]?.class || '');
         const zwsNode = document.createTextNode(zws);
         newBlock.appendChild(zwsNode);
   
@@ -559,7 +580,8 @@ export default class Editor {
     afterRange.setEnd(range.endContainer, range.endOffset);
     const fragment = afterRange.extractContents();
   
-    const newBlock = document.createElement(selectedTag);
+    const newBlock = document.createElement(selectedStyle.tag);
+    newBlock.setAttribute('class', selectedStyle.class || '');
     const inlineTags = this.getInlineFormattingAncestry(range.startContainer, currentBlock);
     let current = newBlock;
   
@@ -789,9 +811,9 @@ export default class Editor {
           items.add(insideLi);
           good = true;
         }
-        const name = node.tagName?.toLowerCase();
-        if (this.styles.some(style => style.tag === name)) {
-          if (!['ul', 'ol'].includes(name)) {
+        const style = this.findStyleOfBlock(node);
+        if (style) {
+          if (!['ul', 'ol'].includes(style.tag)) {
             // If the selection touches on styles other than lists,
             // then it contains things other than nested list items
             return false;
